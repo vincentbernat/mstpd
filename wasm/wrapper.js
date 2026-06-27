@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // JavaScript wrapper around the mstpd WebAssembly core.
-
-import createMstpd from "./dist/mstpd.mjs";
+//
+// This is not a standalone module: the build concatenates it onto the end of
+// the Emscripten output via --extern-post-js, so `createMstpd` (the factory
+// Emscripten emits) is already in scope. The resulting single file is
+// dist/mstpd.mjs, exporting createMstpd (default) plus the API below.
 
 // Mirror of port_role_t / BR_STATE_xxx for the scalar getters.
 export const Role = [

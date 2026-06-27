@@ -20,15 +20,17 @@ EMFLAGS = \
 	-sMODULARIZE=1 \
 	-sEXPORT_ES6=1 \
 	-sEXPORT_NAME=createMstpd \
+	-sSINGLE_FILE=1 \
 	-sALLOW_MEMORY_GROWTH=1 \
-	-sENVIRONMENT=node,web \
+	-sENVIRONMENT=node,web,worker \
 	-sEXPORTED_FUNCTIONS=_free \
 	-sEXPORTED_RUNTIME_METHODS=$(RUNTIME_METHODS) \
-	-sINVOKE_RUN=0
+	-sINVOKE_RUN=0 \
+	--extern-post-js wrapper.js
 
 .DELETE_ON_ERROR:
 
-$(DIST)/mstpd.mjs: $(SRCS) $(HDRS) Makefile | $(DIST)
+$(DIST)/mstpd.mjs: $(SRCS) $(HDRS) wrapper.js Makefile | $(DIST)
 	$(EMCC) $(CFLAGS) $(SRCS) -o $@ $(EMFLAGS)
 
 $(DIST):

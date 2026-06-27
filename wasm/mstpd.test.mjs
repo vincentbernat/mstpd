@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadMstpd } from "./mstpd.mjs";
+import { loadMstpd } from "./dist/mstpd.mjs";
 
 // 40 "seconds" is ample for these small point-to-point topologies to converge.
 const CONVERGE = 40;

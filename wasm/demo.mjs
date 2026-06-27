@@ -6,7 +6,7 @@
 //
 // Run with:  node wasm/demo.mjs
 
-import { loadMstpd } from "./mstpd.mjs";
+import { loadMstpd } from "./dist/mstpd.mjs";
 
 const mstp = await loadMstpd();
 // mstp.setLogLevel(2); // uncomment for INFO-level logging on stderr
