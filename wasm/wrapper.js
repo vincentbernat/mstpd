@@ -344,3 +344,17 @@ class Link {
 }
 
 export { Mstpd, Bridge, Port, Link };
+
+// Convenience for non-module browser code.
+if (typeof window !== "undefined") {
+  window.mstpd = {
+    loadMstpd,
+    Mstpd,
+    Bridge,
+    Port,
+    Link,
+    Role,
+    State,
+    createMstpd,
+  };
+}
