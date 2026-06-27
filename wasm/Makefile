@@ -15,7 +15,8 @@ HDRS = config.h \
 # Runtime helpers JS needs to marshal arguments and read returned strings.
 RUNTIME_METHODS = ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,HEAPU8
 
-CFLAGS = -O3 -DNO_DAEMON=1 -I. -I$(ROOT) -Icompat -Wno-unused-parameter
+CFLAGS = -O3 -DNO_DAEMON=1 -I. -I$(ROOT) -Icompat \
+         -Wno-unused-parameter -Wno-unknown-warning-option
 EMFLAGS = \
 	-sMODULARIZE=1 \
 	-sEXPORT_ES6=1 \
