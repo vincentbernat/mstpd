@@ -1,0 +1,305 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mstpd WebAssembly demo</title>
+    <style>
+      body {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        margin: 0 auto;
+        max-width: 880px;
+        padding: 1.5rem;
+      }
+      .controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 1rem 0;
+      }
+      button {
+        font: inherit;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        border: 1px solid #8888;
+        background: #8881;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #8883;
+      }
+      button.broken {
+        border-color: #e55;
+        background: #e552;
+        color: #e55;
+      }
+      .status {
+        font-variant-numeric: tabular-nums;
+      }
+      /* Let the link buttons be flex items of .controls so they share the
+         same gap as the first row instead of butting together. */
+      #links {
+        display: contents;
+      }
+      .bridge {
+        border: 1px solid #8884;
+        border-radius: 8px;
+        padding: 0.6rem 0.9rem;
+        margin: 0.8rem 0;
+      }
+      .bridge h2 {
+        font-size: 1rem;
+        margin: 0 0 0.4rem;
+        display: flex;
+        gap: 0.6rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+      .root-badge {
+        font-size: 0.72rem;
+        background: #2a7;
+        color: #fff;
+        border-radius: 4px;
+        padding: 0.05rem 0.4rem;
+      }
+      .id {
+        font-family: ui-monospace, monospace;
+        font-size: 0.8rem;
+        opacity: 0.7;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.25rem 0.5rem;
+        border-bottom: 1px solid #8882;
+      }
+      th {
+        font-weight: 600;
+        opacity: 0.7;
+        font-size: 0.8rem;
+      }
+      .pill {
+        border-radius: 4px;
+        padding: 0.05rem 0.45rem;
+        font-size: 0.8rem;
+        white-space: nowrap;
+      }
+      .forwarding {
+        background: #2a73;
+      }
+      .learning {
+        background: #fb03;
+      }
+      .listening,
+      .blocking,
+      .discarding {
+        background: #e553;
+      }
+      .disabled {
+        background: #8883;
+      }
+      td.mono {
+        font-family: monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      code {
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      Three bridges wired into a triangle (a physical loop). Spanning tree
+      elects <strong>br-a</strong> as root and blocks one port to break the
+      loop. Step time and watch the ports converge.
+    </p>
+
+    <div class="controls">
+      <button id="auto">Run</button>
+      <button id="step1">Step 1s</button>
+      <button id="step5">Step 5s</button>
+      <button id="run">Converge (40s)</button>
+      <button id="reset">Reset</button>
+      <span class="status">
+        <span>t = <span id="clock">0</span>s</span> |
+        <span>BPDUs delivered: <span id="frames">0</span></span>
+      </span>
+    </div>
+
+    <div class="controls">
+      <span>Links:</span>
+      <span id="links"></span>
+    </div>
+
+    <template id="bridge-template">
+      <div class="bridge">
+        <h2>
+          <span class="name"></span>
+          <span class="root-badge" hidden>ROOT</span>
+          <span class="id"></span>
+        </h2>
+        <table>
+          <thead>
+            <tr>
+              <th>port</th>
+              <th>role</th>
+              <th>state</th>
+              <th>tx</th>
+              <th>rx</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </template>
+
+    <template id="port-row-template">
+      <tr>
+        <td class="name"></td>
+        <td class="role"></td>
+        <td><span class="pill"></span></td>
+        <td class="mono tx"></td>
+        <td class="mono rx"></td>
+      </tr>
+    </template>
+
+    <div id="out">Loading WebAssembly module…</div>
+
+    <script type="module">
+      import { loadMstpd } from "./mstpd.mjs";
+
+      let mstp,
+        clock = 0,
+        links = [];
+
+      function build() {
+        // Fresh module each reset so state starts clean.
+        return loadMstpd().then((m) => {
+          mstp = m;
+          clock = 0;
+
+          const a = mstp.createBridge("br-a", { priority: 4096 });
+          const b = mstp.createBridge("br-b", { priority: 8192 });
+          const c = mstp.createBridge("br-c", { priority: 12288 });
+
+          const a1 = a.addPort("a-b", { portno: 1 });
+          const a2 = a.addPort("a-c", { portno: 2 });
+          const b1 = b.addPort("b-a", { portno: 1 });
+          const b2 = b.addPort("b-c", { portno: 2 });
+          const c1 = c.addPort("c-a", { portno: 1 });
+          const c2 = c.addPort("c-b", { portno: 2 });
+
+          links = [
+            { label: "a–b", link: mstp.link(a1, b1) },
+            { label: "a–c", link: mstp.link(a2, c1) },
+            { label: "b–c", link: mstp.link(b2, c2) },
+          ];
+
+          for (const br of [a, b, c]) br.enable();
+          for (const p of [a1, a2, b1, b2, c1, c2]) p.enable();
+
+          renderLinks();
+        });
+      }
+
+      function renderLinks() {
+        const box = document.getElementById("links");
+        box.innerHTML = "";
+        for (const entry of links) {
+          const btn = document.createElement("button");
+          const update = () => {
+            btn.textContent =
+              (entry.link.broken ? "restore " : "break ") + entry.label;
+            btn.classList.toggle("broken", entry.link.broken);
+          };
+          btn.onclick = () => {
+            entry.link.toggle();
+            update();
+            render();
+          };
+          update();
+          box.appendChild(btn);
+        }
+      }
+
+      const bridgeTpl = document.getElementById("bridge-template");
+      const portRowTpl = document.getElementById("port-row-template");
+
+      function render() {
+        const topo = mstp.topology();
+        document.getElementById("clock").textContent = clock;
+        document.getElementById("frames").textContent = topo.frames_delivered;
+
+        const out = document.getElementById("out");
+        out.innerHTML = "";
+        for (const br of topo.bridges) {
+          const card = bridgeTpl.content.firstElementChild.cloneNode(true);
+          card.querySelector(".name").textContent = br.name;
+          card.querySelector(".root-badge").hidden = !br.is_root;
+          card.querySelector(".id").textContent =
+            `id ${br.bridge_id} · root ${br.designated_root} ` +
+            `· cumulative cost to root ${br.root_path_cost}`;
+
+          const body = card.querySelector("tbody");
+          for (const p of br.ports) {
+            const row = portRowTpl.content.firstElementChild.cloneNode(true);
+            row.querySelector(".name").textContent = p.name;
+            row.querySelector(".role").textContent = p.role;
+            const pill = row.querySelector(".pill");
+            pill.textContent = p.state;
+            pill.classList.add(p.state);
+            row.querySelector(".tx").textContent = p.tx_bpdu;
+            row.querySelector(".rx").textContent = p.rx_bpdu;
+            body.appendChild(row);
+          }
+          out.appendChild(card);
+        }
+      }
+
+      function step(seconds) {
+        mstp.step(seconds);
+        clock += seconds;
+        render();
+      }
+
+      // Auto-run: step 1s of protocol time every wall-clock second.
+      let timer = null;
+      const autoBtn = document.getElementById("auto");
+      function setRunning(on) {
+        if (on && !timer) {
+          timer = setInterval(() => step(1), 1000);
+          autoBtn.textContent = "Stop";
+        } else if (!on && timer) {
+          clearInterval(timer);
+          timer = null;
+          autoBtn.textContent = "Run";
+        }
+      }
+      autoBtn.onclick = () => setRunning(!timer);
+
+      document.getElementById("step1").onclick = () => step(1);
+      document.getElementById("step5").onclick = () => step(5);
+      document.getElementById("run").onclick = () => step(40);
+      document.getElementById("reset").onclick = () => {
+        setRunning(false);
+        build().then(render);
+      };
+
+      build()
+        .then(render)
+        .catch((e) => {
+          document.getElementById("out").textContent = "Failed to load: " + e;
+          console.error(e);
+        });
+    </script>
+  </body>
+</html>

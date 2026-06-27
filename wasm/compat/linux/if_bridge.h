@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+#ifndef _MSTPD_WASM_LINUX_IF_BRIDGE_H
+#define _MSTPD_WASM_LINUX_IF_BRIDGE_H
+
+#define BR_STATE_DISABLED   0
+#define BR_STATE_LISTENING  1
+#define BR_STATE_LEARNING   2
+#define BR_STATE_FORWARDING 3
+#define BR_STATE_BLOCKING   4
+
+#endif /* _MSTPD_WASM_LINUX_IF_BRIDGE_H */
