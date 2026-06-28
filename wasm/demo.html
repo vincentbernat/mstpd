@@ -146,7 +146,7 @@
       <button id="auto">Run</button>
       <button id="step1">Step 1s</button>
       <button id="step5">Step 5s</button>
-      <button id="run">Converge (40s)</button>
+      <button id="step60">Step 60s</button>
       <button id="reset">Reset</button>
       <span class="status">
         <span>t = <span id="clock">0</span>s</span> |
@@ -307,7 +307,7 @@
 
       document.getElementById("step1").onclick = () => step(1);
       document.getElementById("step5").onclick = () => step(5);
-      document.getElementById("run").onclick = () => step(40);
+      document.getElementById("step60").onclick = () => step(60);
       document.getElementById("reset").onclick = () => {
         setRunning(false);
         build().then(render);
