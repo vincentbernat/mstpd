@@ -75,12 +75,31 @@
         border-collapse: collapse;
         width: 100%;
         font-size: 0.9rem;
+        table-layout: fixed;
       }
       th,
       td {
         text-align: left;
         padding: 0.25rem 0.5rem;
         border-bottom: 1px solid #8882;
+      }
+      th:nth-child(1),
+      td:nth-child(1) {
+        width: 30%;
+      }
+      th:nth-child(2),
+      td:nth-child(2) {
+        width: 22%;
+      }
+      th:nth-child(3),
+      td:nth-child(3) {
+        width: 24%;
+      }
+      th:nth-child(4),
+      td:nth-child(4),
+      th:nth-child(5),
+      td:nth-child(5) {
+        width: 12%;
       }
       th {
         font-weight: 600;
