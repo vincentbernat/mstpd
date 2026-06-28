@@ -22,6 +22,7 @@ jobs:
     - name: distcheck
       shell: bash
       run: ./autogen.sh && ./configure && make distcheck
+    - uses: emscripten-core/setup-emsdk@v15
     - name: wasm
       shell: bash
-      run: sudo apt -y install emscripten && make -C wasm test
+      run: make -C wasm test
