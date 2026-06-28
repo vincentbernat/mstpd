@@ -350,6 +350,50 @@ test("dispute mechanism: a designated port over a one-way link is held blocking"
   assert.equal(pb.state(), "forwarding");
 });
 
+test("bridge assurance: a network port blocks when its neighbour goes silent", async () => {
+  const mstp = await loadMstpd();
+  mstp.setLogLevel(0); // the inconsistency logs an expected error
+
+  // Both ends are network ports, so each keeps sending BPDUs regardless of role
+  // and bridge assurance stays satisfied. Network ports are switch-facing, so
+  // auto-edge is off.
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1, network: true, autoEdge: false });
+  const pb = b.addPort("b1", { portno: 1, network: true, autoEdge: false });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  assert.equal(pa.status().network_port, true);
+  assert.equal(
+    pa.status().ba_inconsistent,
+    false,
+    "healthy link is consistent",
+  );
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pa.state(), "forwarding");
+
+  // The neighbour stops being heard (one-way link). After three missed hellos
+  // bridge assurance flags the port inconsistent and holds it discarding, even
+  // though it is still the designated port.
+  mstp.linkOneWay(pa, pb); // pa still transmits, but no longer hears pb
+  mstp.step(CONVERGE);
+  assert.equal(
+    pa.status().ba_inconsistent,
+    true,
+    "missed hellos trip assurance",
+  );
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pa.state(), "blocking", "assurance holds the port discarding");
+
+  // Restoring two-way BPDUs clears the inconsistency and the port recovers.
+  mstp.link(pa, pb);
+  mstp.step(CONVERGE);
+  assert.equal(pa.status().ba_inconsistent, false, "a fresh BPDU clears it");
+  assert.equal(pa.state(), "forwarding");
+});
+
 test("configuration set through the API is reflected back in the JSON", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", {

@@ -144,6 +144,10 @@ class Mstpd {
         "number",
         "number",
       ]),
+      setPortNetwork: c("mstpw_set_port_network", "number", [
+        "number",
+        "number",
+      ]),
       portRole: c("mstpw_port_role", "number", ["number", "number"]),
       portState: c("mstpw_port_state", "number", ["number", "number"]),
       bridgeJson: c("mstpw_bridge_json", "number", ["number"]),
@@ -257,6 +261,7 @@ class Bridge {
       port.setRestrictedRole(opts.restrictedRole);
     if (opts.restrictedTcn !== undefined)
       port.setRestrictedTcn(opts.restrictedTcn);
+    if (opts.network !== undefined) port.setNetwork(opts.network);
     return port;
   }
 
@@ -363,6 +368,9 @@ class Port {
   }
   setRestrictedTcn(restricted = true) {
     return this.mstp._.setPortRestrictedTcn(this.handle, restricted ? 1 : 0);
+  }
+  setNetwork(network = true) {
+    return this.mstp._.setPortNetwork(this.handle, network ? 1 : 0);
   }
   // mode: "auto" | true | false (or numeric 0 | 1 | 2 = auto | force-on | force-off).
   setP2P(mode = "auto") {

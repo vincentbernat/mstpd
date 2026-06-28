@@ -405,6 +405,8 @@ static void json_port(sb_t *s, int porth)
     sb_kv_bool(s, &first, "restricted_role", st.restricted_role);
     sb_kv_bool(s, &first, "restricted_tcn", st.restricted_tcn);
     sb_kv_bool(s, &first, "disputed", st.disputed);
+    sb_kv_bool(s, &first, "network_port", st.network_port);
+    sb_kv_bool(s, &first, "ba_inconsistent", st.ba_inconsistent);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
     sb_kv_uint(s, &first, "admin_external_path_cost",
                st.admin_external_port_path_cost);
@@ -1079,6 +1081,17 @@ API int mstpw_set_port_restricted_tcn(int porth, int yes)
     memset(&cfg, 0, sizeof(cfg));
     cfg.set_restricted_tcn = true;
     cfg.restricted_tcn = !!yes;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
+API int mstpw_set_port_network(int porth, int yes)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_network_port = true;
+    cfg.network_port = !!yes;
     return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
 }
 
