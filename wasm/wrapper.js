@@ -135,6 +135,14 @@ class Mstpd {
         "number",
         "number",
       ]),
+      setPortRestrictedRole: c("mstpw_set_port_restricted_role", "number", [
+        "number",
+        "number",
+      ]),
+      setPortRestrictedTcn: c("mstpw_set_port_restricted_tcn", "number", [
+        "number",
+        "number",
+      ]),
       portRole: c("mstpw_port_role", "number", ["number", "number"]),
       portState: c("mstpw_port_state", "number", ["number", "number"]),
       bridgeJson: c("mstpw_bridge_json", "number", ["number"]),
@@ -236,6 +244,10 @@ class Bridge {
     if (opts.autoEdge !== undefined) port.setAutoEdge(opts.autoEdge);
     if (opts.p2p !== undefined) port.setP2P(opts.p2p);
     if (opts.bpduGuard !== undefined) port.setBpduGuard(opts.bpduGuard);
+    if (opts.restrictedRole !== undefined)
+      port.setRestrictedRole(opts.restrictedRole);
+    if (opts.restrictedTcn !== undefined)
+      port.setRestrictedTcn(opts.restrictedTcn);
     return port;
   }
 
@@ -336,6 +348,12 @@ class Port {
   }
   setBpduGuard(guard = true) {
     return this.mstp._.setPortBpduGuard(this.handle, guard ? 1 : 0);
+  }
+  setRestrictedRole(restricted = true) {
+    return this.mstp._.setPortRestrictedRole(this.handle, restricted ? 1 : 0);
+  }
+  setRestrictedTcn(restricted = true) {
+    return this.mstp._.setPortRestrictedTcn(this.handle, restricted ? 1 : 0);
   }
   // mode: "auto" | true | false (or numeric 0 | 1 | 2 = auto | force-on | force-off).
   setP2P(mode = "auto") {

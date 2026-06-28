@@ -402,6 +402,8 @@ static void json_port(sb_t *s, int porth)
     sb_kv_bool(s, &first, "oper_p2p", st.oper_p2p);
     sb_kv_bool(s, &first, "bpdu_guard_port", st.bpdu_guard_port);
     sb_kv_bool(s, &first, "bpdu_guard_error", st.bpdu_guard_error);
+    sb_kv_bool(s, &first, "restricted_role", st.restricted_role);
+    sb_kv_bool(s, &first, "restricted_tcn", st.restricted_tcn);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
     sb_kv_uint(s, &first, "admin_external_path_cost",
                st.admin_external_port_path_cost);
@@ -1038,6 +1040,28 @@ API int mstpw_set_port_bpdu_guard(int porth, int yes)
     memset(&cfg, 0, sizeof(cfg));
     cfg.set_bpdu_guard_port = true;
     cfg.bpdu_guard_port = !!yes;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
+API int mstpw_set_port_restricted_role(int porth, int yes)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_restricted_role = true;
+    cfg.restricted_role = !!yes;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
+API int mstpw_set_port_restricted_tcn(int porth, int yes)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_restricted_tcn = true;
+    cfg.restricted_tcn = !!yes;
     return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
 }
 

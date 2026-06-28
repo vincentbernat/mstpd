@@ -300,6 +300,29 @@ test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down"
   assert.equal(pa.role(), "Disabled");
 });
 
+test("root guard: a restricted-role port refuses to become the root port", async () => {
+  const mstp = await loadMstpd();
+  // b would normally make a (lower priority) the root and pick its port toward
+  // a as the root port. Root guard (restricted role) bars that port from ever
+  // leading to the root, so b keeps itself as root and the port goes blocking.
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1, restrictedRole: true });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  assert.equal(pb.status().restricted_role, true);
+  assert.equal(byName(mstp.topology(), "b").is_root, true, "b keeps the root");
+  assert.notEqual(pb.role(), "Root", "the superior neighbour is not made root");
+  assert.equal(pb.role(), "Alternate");
+  assert.equal(pb.state(), "blocking");
+  // a is unaffected: it is designated toward b and forwards.
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pa.state(), "forwarding");
+});
+
 test("configuration set through the API is reflected back in the JSON", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", {
