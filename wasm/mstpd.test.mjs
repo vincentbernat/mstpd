@@ -167,6 +167,41 @@ test("an unlinked, enabled port becomes designated/forwarding", async () => {
   assert.equal(p.state(), "forwarding");
 });
 
+test("auto-edge: a port seeing no BPDU becomes edge unless auto-edge is off", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  // auto-edge defaults on; the second port has it explicitly disabled.
+  const edge = a.addPort("edge", { portno: 1, autoEdge: true });
+  const noedge = a.addPort("noedge", { portno: 2, autoEdge: false });
+  a.enable();
+  edge.enable();
+  noedge.enable();
+  mstp.step(CONVERGE);
+
+  assert.equal(edge.status().oper_edge, true, "auto-edge port turned edge");
+  assert.equal(noedge.status().oper_edge, false, "disabled port did not");
+  assert.equal(edge.state(), "forwarding");
+});
+
+test("admin p2p: forcing point-to-point off is reflected in oper_p2p", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  // A full-duplex link is auto-detected as point-to-point.
+  assert.equal(pa.status().oper_p2p, true);
+
+  pa.setP2P(false);
+  mstp.step(CONVERGE);
+  assert.equal(pa.status().oper_p2p, false, "forced off");
+  assert.equal(pb.status().oper_p2p, true, "neighbour still auto/p2p");
+});
+
 test("BPDUs are exchanged and counters advance", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });

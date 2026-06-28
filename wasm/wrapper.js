@@ -103,6 +103,14 @@ class Mstpd {
         "number",
         "number",
       ]),
+      setPortAutoEdge: c("mstpw_set_port_auto_edge", "number", [
+        "number",
+        "number",
+      ]),
+      setPortAdminP2P: c("mstpw_set_port_admin_p2p", "number", [
+        "number",
+        "number",
+      ]),
       portRole: c("mstpw_port_role", "number", ["number", "number"]),
       portState: c("mstpw_port_state", "number", ["number", "number"]),
       bridgeJson: c("mstpw_bridge_json", "number", ["number"]),
@@ -200,6 +208,8 @@ class Bridge {
     port.duplex = opts.duplex === undefined ? 1 : opts.duplex ? 1 : 0;
     if (opts.cost !== undefined) port.setPathCost(opts.cost);
     if (opts.edge) port.setAdminEdge(true);
+    if (opts.autoEdge !== undefined) port.setAutoEdge(opts.autoEdge);
+    if (opts.p2p !== undefined) port.setP2P(opts.p2p);
     return port;
   }
 
@@ -294,6 +304,18 @@ class Port {
   }
   setAdminEdge(edge = true) {
     return this.mstp._.setPortAdminEdge(this.handle, edge ? 1 : 0);
+  }
+  setAutoEdge(auto = true) {
+    return this.mstp._.setPortAutoEdge(this.handle, auto ? 1 : 0);
+  }
+  // mode: "auto" | true | false (or numeric 0 | 1 | 2 = auto | force-on | force-off).
+  setP2P(mode = "auto") {
+    const map = { auto: 0, true: 1, false: 2 };
+    let v;
+    if (typeof mode === "number") v = mode;
+    else if (typeof mode === "boolean") v = mode ? 1 : 2;
+    else v = map[mode];
+    return this.mstp._.setPortAdminP2P(this.handle, v);
   }
 
   role(mstid = 0) {

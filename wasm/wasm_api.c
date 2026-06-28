@@ -890,6 +890,29 @@ API int mstpw_set_port_admin_edge(int porth, int edge)
     return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
 }
 
+API int mstpw_set_port_auto_edge(int porth, int yes)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_auto_edge_port = true;
+    cfg.auto_edge_port = !!yes;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
+/* p2p: p2pAuto(0), p2pForceTrue(1), p2pForceFalse(2). */
+API int mstpw_set_port_admin_p2p(int porth, int p2p)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_admin_p2p = true;
+    cfg.admin_p2p = (admin_p2p_t)p2p;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
 /* Returns port_role_t for the given tree (0 == CIST), or -1 on error. */
 API int mstpw_port_role(int porth, int mstid)
 {
