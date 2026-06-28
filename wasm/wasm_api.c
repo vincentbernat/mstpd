@@ -309,6 +309,28 @@ static const char *state_name(int state)
     }
 }
 
+static const char *protocol_version_name(protocol_version_t v)
+{
+    switch(v)
+    {
+        case protoSTP:  return "stp";
+        case protoRSTP: return "rstp";
+        case protoMSTP: return "mstp";
+        default:        return "unknown";
+    }
+}
+
+static const char *admin_p2p_name(admin_p2p_t p2p)
+{
+    switch(p2p)
+    {
+        case p2pAuto:       return "auto";
+        case p2pForceTrue:  return "yes";
+        case p2pForceFalse: return "no";
+        default:            return "unknown";
+    }
+}
+
 static tree_t *find_tree(bridge_t *br, int mstid)
 {
     __be16 id = __cpu_to_be16((__u16)mstid);
@@ -345,9 +367,14 @@ static void json_port(sb_t *s, int porth)
     sb_port_id(s, &first, "port_id", st.port_id);
     sb_kv_str(s, &first, "role", role_name(st.role));
     sb_kv_str(s, &first, "state", state_name(st.state));
+    sb_kv_bool(s, &first, "admin_edge", st.admin_edge_port);
+    sb_kv_bool(s, &first, "auto_edge", st.auto_edge_port);
     sb_kv_bool(s, &first, "oper_edge", st.oper_edge_port);
+    sb_kv_str(s, &first, "admin_p2p", admin_p2p_name(st.admin_p2p));
     sb_kv_bool(s, &first, "oper_p2p", st.oper_p2p);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
+    sb_kv_uint(s, &first, "admin_external_path_cost",
+               st.admin_external_port_path_cost);
     sb_kv_uint(s, &first, "external_path_cost", st.external_port_path_cost);
     sb_kv_uint(s, &first, "internal_path_cost", st.internal_port_path_cost);
     sb_bridge_id(s, &first, "designated_root", st.designated_root);
@@ -374,6 +401,10 @@ static void json_port(sb_t *s, int porth)
         sb_kv_uint(s, &ifirst, "mstid", __be16_to_cpu(ptp->MSTID));
         sb_kv_str(s, &ifirst, "role", role_name(mst.role));
         sb_kv_str(s, &ifirst, "state", state_name(mst.state));
+        sb_kv_uint(s, &ifirst, "admin_internal_path_cost",
+                   mst.admin_internal_port_path_cost);
+        sb_kv_uint(s, &ifirst, "internal_path_cost",
+                   mst.internal_port_path_cost);
         sb_printf(s, "}");
         mfirst = false;
     }
@@ -403,6 +434,17 @@ static void json_bridge(sb_t *s, int brh)
     sb_kv_uint(s, &first, "forward_delay", st.bridge_forward_delay);
     sb_kv_uint(s, &first, "hello_time", st.bridge_hello_time);
     sb_kv_uint(s, &first, "max_hops", st.max_hops);
+    sb_kv_uint(s, &first, "tx_hold_count", st.tx_hold_count);
+    sb_kv_str(s, &first, "protocol_version",
+              protocol_version_name(st.protocol_version));
+
+    char cfg_name[CONFIGURATION_NAME_LEN + 1];
+    memcpy(cfg_name, br->MstConfigId.s.configuration_name,
+           CONFIGURATION_NAME_LEN);
+    cfg_name[CONFIGURATION_NAME_LEN] = '\0';
+    sb_kv_str(s, &first, "mst_config_name", cfg_name);
+    sb_kv_uint(s, &first, "mst_config_revision",
+               __be16_to_cpu(br->MstConfigId.s.revision_level));
 
     /* Ports */
     sb_key(s, &first, "ports");

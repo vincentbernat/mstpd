@@ -202,6 +202,50 @@ test("admin p2p: forcing point-to-point off is reflected in oper_p2p", async () 
   assert.equal(pb.status().oper_p2p, true, "neighbour still auto/p2p");
 });
 
+test("configuration set through the API is reflected back in the JSON", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", {
+    priority: 4096,
+    protocol: "mstp",
+    configId: { revision: 7, name: "region-x" },
+  });
+  a.setTimes({
+    maxAge: 18,
+    forwardDelay: 12,
+    helloTime: 2,
+    maxHops: 30,
+    txHoldCount: 5,
+  });
+  a.createMsti(1);
+  const p = a.addPort("p1", {
+    portno: 1,
+    edge: true,
+    autoEdge: false,
+    p2p: false,
+    cost: 12345,
+  });
+  p.setPathCost(54321, 1);
+  a.enable();
+  p.enable();
+
+  const b = a.status();
+  assert.equal(b.protocol_version, "mstp");
+  assert.equal(b.tx_hold_count, 5);
+  assert.equal(b.mst_config_name, "region-x");
+  assert.equal(b.mst_config_revision, 7);
+  assert.equal(b.max_age, 18);
+  assert.equal(b.forward_delay, 12);
+  assert.equal(b.max_hops, 30);
+
+  const ps = p.status();
+  assert.equal(ps.admin_edge, true);
+  assert.equal(ps.auto_edge, false);
+  assert.equal(ps.admin_p2p, "no");
+  assert.equal(ps.admin_external_path_cost, 12345);
+  const msti = ps.mstis.find((m) => m.mstid === 1);
+  assert.equal(msti.admin_internal_path_cost, 54321);
+});
+
 test("BPDUs are exchanged and counters advance", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });
