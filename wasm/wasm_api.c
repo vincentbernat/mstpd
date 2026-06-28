@@ -158,6 +158,29 @@ static void sb_port_id(sb_t *s, bool *first, const char *key,
     sb_kv_uint(s, first, numkey, v & 0x0FFF);
 }
 
+/* Tracing */
+
+/* An optional ring of recent state-machine events (proposal/agreement BPDUs and
+ * port state changes) the host can drain. */
+#define MSTPW_TRACE_CAP 8192
+typedef struct
+{
+    int port;
+    const char *event;
+} trace_event_t;
+static bool g_trace_on;
+static trace_event_t g_trace[MSTPW_TRACE_CAP];
+static unsigned int g_trace_count;
+
+static void trace_record(int porth, const char *event)
+{
+    if(!g_trace_on || g_trace_count >= MSTPW_TRACE_CAP)
+        return;
+    trace_event_t *e = &g_trace[g_trace_count++];
+    e->port = porth;
+    e->event = event;
+}
+
 /* Bridge and port registries */
 
 #define MSTPW_MAX_BRIDGES 256
@@ -503,6 +526,7 @@ void MSTP_OUT_set_state(per_tree_port_t *ptp, int new_state)
         default:
             break;
     }
+    trace_record(prt->sysdeps.if_index, state_name(ptp->state));
     INFO_MSTINAME(ptp, "Entering %s state", state_name(ptp->state));
 }
 
@@ -529,6 +553,14 @@ void MSTP_OUT_tx_bpdu(port_t *prt, bpdu_t *bpdu, int size)
         ++(prt->num_tx_tcn);
 
     int porth = prt->sysdeps.if_index;
+    if(bpduTypeRST == bpdu->bpduType)
+    {
+        if(bpdu->flags & (1 << offsetProposal))
+            trace_record(porth, "proposal");
+        if(bpdu->flags & (1 << offsetAgreement))
+            trace_record(porth, "agreement");
+    }
+
     if(!port_handle_ok(porth))
         return;
     int peer = g_ports[porth].peer;
@@ -789,6 +821,40 @@ API void mstpw_step(int seconds)
                 MSTP_IN_one_second(g_bridges[j]);
         mstpw_deliver();
     }
+}
+
+API void mstpw_trace_enable(int on)
+{
+    g_trace_on = !!on;
+    if(!g_trace_on)
+        g_trace_count = 0;
+}
+
+/* Return the events recorded since the last drain as a JSON array, then clear
+ * the buffer. Caller frees. */
+API char *mstpw_trace_json(void)
+{
+    sb_t s;
+    sb_init(&s);
+    sb_printf(&s, "[");
+    for(unsigned int i = 0; i < g_trace_count; ++i)
+    {
+        trace_event_t *e = &g_trace[i];
+        bool first = true;
+        sb_printf(&s, "%s{", i ? "," : "");
+        sb_kv_int(&s, &first, "port", e->port);
+        if(port_handle_ok(e->port))
+        {
+            sb_kv_str(&s, &first, "port_name", g_ports[e->port].prt->sysdeps.name);
+            bridge_t *br = g_bridges[g_ports[e->port].brh];
+            sb_kv_str(&s, &first, "bridge", br ? br->sysdeps.name : "");
+        }
+        sb_kv_str(&s, &first, "event", e->event);
+        sb_printf(&s, "}");
+    }
+    sb_printf(&s, "]");
+    g_trace_count = 0;
+    return s.buf;
 }
 
 API int mstpw_set_mst_config_id(int brh, int revision, const char *name)

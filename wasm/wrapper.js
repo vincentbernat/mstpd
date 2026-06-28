@@ -29,10 +29,30 @@ export async function loadMstpd(moduleOverrides = {}) {
   return new Mstpd(Module);
 }
 
+// Read a C string returned by a *_json() call, then free the heap buffer.
+function takeString(m, ptr) {
+  if (!ptr) return null;
+  const s = m.UTF8ToString(ptr);
+  m._free(ptr);
+  return s;
+}
+
+// Accept either a raw 0..15 multiplier or a full 0..61440 priority value.
+function priorityNibble(priority) {
+  if (priority === undefined || priority === null) return 8; // default
+  return priority > 15 ? Math.floor(priority / 4096) : priority;
+}
+
 class Mstpd {
+  #onEvent = null;
+  #traceEnable;
+  #traceJson;
+
   constructor(Module) {
     this.m = Module;
     const c = (name, ret, args) => Module.cwrap(name, ret, args);
+    this.#traceEnable = c("mstpw_trace_enable", null, ["number"]);
+    this.#traceJson = c("mstpw_trace_json", "number", []);
     this._ = {
       setLogLevel: c("mstpw_set_log_level", null, ["number"]),
       bridgeCreate: c("mstpw_bridge_create", "number", ["string", "string"]),
@@ -117,22 +137,7 @@ class Mstpd {
       portJson: c("mstpw_port_json", "number", ["number"]),
       topologyJson: c("mstpw_topology_json", "number", []),
     };
-    // init and free are internal only — call them directly, not via this._.
     this.m.ccall("mstpw_init");
-  }
-
-  // Read a C string returned by a *_json() call, then free the heap buffer.
-  _takeString(ptr) {
-    if (!ptr) return null;
-    const s = this.m.UTF8ToString(ptr);
-    this.m._free(ptr);
-    return s;
-  }
-
-  // Accept either a raw 0..15 multiplier or a full 0..61440 priority value.
-  _priorityNibble(priority) {
-    if (priority === undefined || priority === null) return 8; // default
-    return priority > 15 ? Math.floor(priority / 4096) : priority;
   }
 
   setLogLevel(level) {
@@ -161,18 +166,34 @@ class Mstpd {
     return new Link(this, pa, pb, portA, portB);
   }
 
+  // Register a callback fired for each state-machine event (proposal/agreement
+  // BPDUs and port state changes) as step()/deliver() runs. Pass null to stop.
+  // Events look like { t, port, port_name, bridge, event }.
+  onEvent(cb) {
+    this.#onEvent = cb || null;
+    this.#traceEnable(this.#onEvent ? 1 : 0);
+  }
+
+  #drainEvents() {
+    if (!this.#onEvent) return;
+    const events = JSON.parse(takeString(this.m, this.#traceJson()));
+    for (const e of events) this.#onEvent(e);
+  }
+
   oneSecond() {
     this._.oneSecondAll();
   }
   deliver() {
     this._.deliver();
+    this.#drainEvents();
   }
   step(seconds = 1) {
     this._.step(seconds);
+    this.#drainEvents();
   }
 
   topology() {
-    return JSON.parse(this._takeString(this._.topologyJson()));
+    return JSON.parse(takeString(this.m, this._.topologyJson()));
   }
 }
 
@@ -218,7 +239,7 @@ class Bridge {
     return this.mstp._.setBridgePriority(
       this.handle,
       mstid,
-      this.mstp._priorityNibble(priority),
+      priorityNibble(priority),
     );
   }
 
@@ -267,7 +288,7 @@ class Bridge {
 
   status() {
     return JSON.parse(
-      this.mstp._takeString(this.mstp._.bridgeJson(this.handle)),
+      takeString(this.mstp.m, this.mstp._.bridgeJson(this.handle)),
     );
   }
 }
@@ -326,7 +347,7 @@ class Port {
   }
 
   status() {
-    return JSON.parse(this.mstp._takeString(this.mstp._.portJson(this.handle)));
+    return JSON.parse(takeString(this.mstp.m, this.mstp._.portJson(this.handle)));
   }
 }
 

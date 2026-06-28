@@ -167,6 +167,63 @@ test("an unlinked, enabled port becomes designated/forwarding", async () => {
   assert.equal(p.state(), "forwarding");
 });
 
+test("onEvent returns the RSTP states", async () => {
+  const mstp = await loadMstpd();
+  const events = [];
+  mstp.onEvent((e) => events.push(e));
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  const names = events.filter((e) => e.bridge == "a").map((e) => e.event);
+  assert.ok(names.includes("proposal"), "a proposal was sent");
+  assert.ok(names.includes("agreement"), "an agreement was sent");
+  assert.ok(names.includes("blocking"), "some port was in blocking state");
+  assert.ok(names.includes("learning"), "some port was in learning state");
+
+  // The handshake drives forwarding: a proposal precedes any forwarding.
+  assert.ok(
+    names.indexOf("forwarding") > names.indexOf("proposal"),
+    "forwarding follows the handshake",
+  );
+  assert.ok(
+    names.indexOf("forwarding") > names.indexOf("learning"),
+    "forwarding follows learning",
+  );
+  assert.ok(
+    names.indexOf("learning") > names.indexOf("blocking"),
+    "learning follows blocking",
+  );
+
+  // Both devices forward, and every event is attributed to its bridge (not mixed).
+  const forwarded = new Set(
+    events.filter((e) => e.event === "forwarding").map((e) => e.bridge),
+  );
+  assert.deepEqual([...forwarded].sort(), ["a", "b"]);
+  assert.ok(events.every((e) => e.bridge === "a" || e.bridge === "b"));
+});
+
+test("onEvent(null) detaches the listener", async () => {
+  const mstp = await loadMstpd();
+  let count = 0;
+  mstp.onEvent(() => count++);
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const p = a.addPort("p", { portno: 1 });
+  a.enable();
+  p.enable();
+  mstp.step(CONVERGE);
+  assert.ok(count > 0, "events arrived while attached");
+
+  const seen = count;
+  mstp.onEvent(null);
+  mstp.step(CONVERGE);
+  assert.equal(count, seen, "no events after detaching");
+});
+
 test("two ports on the same segment: one is designated, the other backup", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });

@@ -133,6 +133,46 @@
       code {
         font-family: monospace;
       }
+      .event-log h2 {
+        font-size: 1rem;
+        margin: 1.2rem 0 0.4rem;
+      }
+      #events {
+        max-height: 14rem;
+        overflow-y: auto;
+        border: 1px solid #8884;
+        border-radius: 8px;
+        padding: 0.4rem 0.6rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.82rem;
+      }
+      #events:empty::before {
+        content: "No events yet — step time to watch the handshake.";
+        opacity: 0.6;
+      }
+      .event {
+        display: flex;
+        gap: 0.6rem;
+        padding: 0.1rem 0;
+        white-space: nowrap;
+      }
+      .event .ts {
+        opacity: 0.6;
+        font-variant-numeric: tabular-nums;
+      }
+      .event .who {
+        min-width: 6rem;
+      }
+      .tag {
+        border-radius: 4px;
+        padding: 0 0.4rem;
+      }
+      .tag.proposal {
+        background: #59f3;
+      }
+      .tag.agreement {
+        background: #2a73;
+      }
     </style>
   </head>
   <body>
@@ -191,7 +231,20 @@
       </tr>
     </template>
 
+    <template id="event-template">
+      <div class="event">
+        <span class="ts"></span>
+        <span class="who"></span>
+        <span class="tag"></span>
+      </div>
+    </template>
+
     <div id="out">Loading WebAssembly module…</div>
+
+    <div class="event-log">
+      <h2>Events</h2>
+      <div id="events"></div>
+    </div>
 
     <script type="module">
       import { loadMstpd } from "./dist/mstpd.mjs";
@@ -200,11 +253,35 @@
         clock = 0,
         links = [];
 
+      const eventsBox = document.getElementById("events");
+      const eventTpl = document.getElementById("event-template");
+
+      // Simulation time, as MM:SS relative to the beginning.
+      function fmtClock(seconds) {
+        const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+        const ss = String(seconds % 60).padStart(2, "0");
+        return `${mm}:${ss}`;
+      }
+
+      function logEvent(e) {
+        const row = eventTpl.content.firstElementChild.cloneNode(true);
+        row.querySelector(".ts").textContent = fmtClock(clock);
+        row.querySelector(".who").textContent = `${e.bridge}/${e.port_name}`;
+        const tag = row.querySelector(".tag");
+        tag.textContent = e.event;
+        tag.classList.add(e.event);
+        eventsBox.prepend(row); // newest first
+        while (eventsBox.childElementCount > 300)
+          eventsBox.lastElementChild.remove();
+      }
+
       function build() {
         // Fresh module each reset so state starts clean.
         return loadMstpd().then((m) => {
           mstp = m;
           clock = 0;
+          eventsBox.textContent = "";
+          mstp.onEvent(logEvent);
 
           const a = mstp.createBridge("br-a", { priority: 4096 });
           const b = mstp.createBridge("br-b", { priority: 8192 });
@@ -285,8 +362,10 @@
       }
 
       function step(seconds) {
-        mstp.step(seconds);
+        // Advance clock first so events drained during step() are stamped with
+        // the time the simulation reaches.
         clock += seconds;
+        mstp.step(seconds);
         render();
       }
 
