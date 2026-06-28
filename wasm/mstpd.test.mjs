@@ -475,6 +475,72 @@ test("an RSTP switch in the middle splits two same-config MSTP bridges into sepa
   assert.notEqual(ra, rc, "the RSTP switch splits them into two regions");
 });
 
+test("two MSTP regions: the CIST spans both while each keeps its own MSTI tree", async () => {
+  const mstp = await loadMstpd();
+  const r1 = { protocol: "mstp", configId: { revision: 1, name: "r1" } };
+  const r2 = { protocol: "mstp", configId: { revision: 2, name: "r2" } };
+  // Region 1 = {a, b}, region 2 = {c, d}. The regions touch through two links
+  // (a-c and b-d), so there is an inter-region loop the Common Spanning Tree
+  // must break. Internal links a-b and c-d close each region.
+  const a = mstp.createBridge("a", { priority: 4096, ...r1 });
+  const b = mstp.createBridge("b", { priority: 8192, ...r1 });
+  const c = mstp.createBridge("c", { priority: 12288, ...r2 });
+  const d = mstp.createBridge("d", { priority: 16384, ...r2 });
+  for (const br of [a, b, c, d]) {
+    br.createMsti(1);
+    br.setVid2Fid(10, 10);
+    br.setFid2Mstid(10, 1);
+  }
+  const ab = a.addPort("a-b", { portno: 1 });
+  const ba = b.addPort("b-a", { portno: 1 });
+  const cd = c.addPort("c-d", { portno: 1 });
+  const dc = d.addPort("d-c", { portno: 1 });
+  const ac = a.addPort("a-c", { portno: 2 });
+  const ca = c.addPort("c-a", { portno: 2 });
+  const bd = b.addPort("b-d", { portno: 2 });
+  const db = d.addPort("d-b", { portno: 2 });
+  mstp.link(ab, ba); // region 1 internal
+  mstp.link(cd, dc); // region 2 internal
+  mstp.link(ac, ca); // boundary
+  mstp.link(bd, db); // boundary
+  const ports = [ab, ba, cd, dc, ac, ca, bd, db];
+  for (const br of [a, b, c, d]) br.enable();
+  for (const p of ports) p.enable();
+  mstp.step(CONVERGE);
+
+  const t = mstp.topology();
+
+  // The CIST is the network-wide tree: a is the one root and all four agree.
+  assert.equal(byName(t, "a").is_root, true);
+  for (const x of t.bridges)
+    assert.equal(
+      x.designated_root,
+      byName(t, "a").bridge_id,
+      `${x.name} agrees on the CIST root`,
+    );
+
+  // MSTIs never cross a region boundary: each region elects its own MSTI 1
+  // regional root, so the two regions disagree.
+  const rrOf = (n) => byName(t, n).mstis[0].regional_root;
+  assert.equal(rrOf("a"), rrOf("b"), "region 1 shares one MSTI regional root");
+  assert.equal(rrOf("c"), rrOf("d"), "region 2 shares one MSTI regional root");
+  assert.notEqual(rrOf("a"), rrOf("c"), "the two regions are distinct");
+
+  // The CST breaks the inter-region loop with exactly one blocked port.
+  const blocked = t.bridges
+    .flatMap((x) => x.ports)
+    .filter((p) => p.state === "blocking" || p.state === "discarding");
+  assert.equal(blocked.length, 1, "the CST breaks the inter-region loop");
+  assert.equal(db.role(), "Alternate", "the redundant boundary link is blocked");
+
+  // The active boundary port is a region gateway: its CIST role is Root, but
+  // for the MSTI it takes the Master role (the path out of the region toward
+  // the CIST root). Both regions keep speaking RSTP/MSTP across the boundary.
+  assert.equal(ca.role(), "Root", "boundary port is the CIST root port");
+  assert.equal(ca.role(1), "Master", "and the MSTI master toward the root");
+  assert.equal(ca.status().send_rstp, true, "no fallback to STP at the boundary");
+});
+
 test("STP, RSTP and MSTP in one triangle converge to a single tree", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096, protocol: "stp" });
