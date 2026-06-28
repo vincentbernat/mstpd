@@ -73,7 +73,7 @@ test("triangle loop: exactly one port blocks and all agree on the root", async (
   }
 });
 
-test("breaking the active link reconverges; restoring recovers", async () => {
+test("breaking the active link reconverges and restoring recovers", async () => {
   const mstp = await loadMstpd();
   const g = buildTriangle(mstp);
   mstp.step(CONVERGE);
@@ -182,13 +182,190 @@ test("BPDUs are exchanged and counters advance", async () => {
   assert.ok(pb.status().rx_bpdu > 0);
 });
 
-test("bridge names are JSON-escaped (no invalid JSON)", async () => {
+test("bridge names are JSON-escaped", async () => {
   const mstp = await loadMstpd();
   const tricky = 'a"b\\c\td'; // quote, backslash, tab (<= 15 chars)
   const a = mstp.createBridge(tricky, { priority: 4096 });
   a.enable();
   const t = mstp.topology(); // throws if the JSON is malformed
   assert.equal(t.bridges[0].name, tricky);
+});
+
+test("pure STP triangle breaks the loop and never sends RSTP", async () => {
+  const mstp = await loadMstpd();
+  const stp = { protocol: "stp" };
+  const a = mstp.createBridge("a", { priority: 4096, ...stp });
+  const b = mstp.createBridge("b", { priority: 8192, ...stp });
+  const c = mstp.createBridge("c", { priority: 12288, ...stp });
+  const a1 = a.addPort("a-b", { portno: 1 });
+  const a2 = a.addPort("a-c", { portno: 2 });
+  const b1 = b.addPort("b-a", { portno: 1 });
+  const b2 = b.addPort("b-c", { portno: 2 });
+  const c1 = c.addPort("c-a", { portno: 1 });
+  const c2 = c.addPort("c-b", { portno: 2 });
+  mstp.link(a1, b1);
+  mstp.link(a2, c1);
+  mstp.link(b2, c2);
+  for (const br of [a, b, c]) br.enable();
+  for (const p of [a1, a2, b1, b2, c1, c2]) p.enable();
+  mstp.step(CONVERGE);
+
+  const t = mstp.topology();
+  assert.equal(byName(t, "a").is_root, true);
+  for (const x of t.bridges)
+    assert.equal(
+      x.designated_root,
+      byName(t, "a").bridge_id,
+      `${x.name} agrees`,
+    );
+
+  const blocked = t.bridges
+    .flatMap((x) => x.ports)
+    .filter((p) => p.state === "blocking" || p.state === "discarding");
+  assert.equal(blocked.length, 1, "exactly one port breaks the loop");
+
+  // STP bridges must never emit RSTP/MSTP BPDUs.
+  for (const p of t.bridges.flatMap((x) => x.ports))
+    assert.equal(p.send_rstp, false, `${p.name} stays STP`);
+});
+
+test("RSTP falls back to STP when the peer only speaks STP", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096, protocol: "rstp" });
+  const b = mstp.createBridge("b", { priority: 8192, protocol: "stp" });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  // The tree still forms: a is root, b reaches it through the link.
+  assert.equal(byName(mstp.topology(), "a").is_root, true);
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pb.role(), "Root");
+  assert.equal(pa.state(), "forwarding");
+  assert.equal(pb.state(), "forwarding");
+
+  // a started as RSTP but, seeing b's STP BPDUs, migrated that port to STP.
+  assert.equal(pa.status().send_rstp, false, "RSTP port fell back to STP");
+  assert.equal(pb.status().send_rstp, false, "STP port never sent RSTP");
+});
+
+test("MSTP interoperates with an RSTP peer without dropping to STP", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", {
+    priority: 4096,
+    protocol: "mstp",
+    configId: { revision: 1, name: "r1" },
+  });
+  const b = mstp.createBridge("b", { priority: 8192, protocol: "rstp" });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  // The CIST forms across the MSTP/RSTP boundary: a is root, b reaches it.
+  assert.equal(byName(mstp.topology(), "a").is_root, true);
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pb.role(), "Root");
+  assert.equal(pa.state(), "forwarding");
+  assert.equal(pb.state(), "forwarding");
+
+  // The RSTP neighbour is a region boundary, but neither side drops to legacy
+  // STP: both keep sending RSTP/MSTP BPDUs.
+  assert.equal(pa.status().send_rstp, true, "MSTP port operates at RSTP level");
+  assert.equal(pb.status().send_rstp, true, "RSTP port stays RSTP");
+});
+
+test("an RSTP switch in the middle splits two same-config MSTP bridges into separate regions", async () => {
+  const mstp = await loadMstpd();
+  const region = { protocol: "mstp", configId: { revision: 1, name: "r1" } };
+  // a and c share an identical MST configuration, but the RSTP switch m sits
+  // between them. m cannot carry MSTI information, so it is a region boundary
+  // for both: the MSTP region cannot span it even though the config matches.
+  const a = mstp.createBridge("a", { priority: 4096, ...region });
+  const m = mstp.createBridge("m", { priority: 8192, protocol: "rstp" });
+  const c = mstp.createBridge("c", { priority: 12288, ...region });
+  for (const br of [a, c]) {
+    br.createMsti(1);
+    br.setVid2Fid(10, 10);
+    br.setFid2Mstid(10, 1);
+  }
+  const a1 = a.addPort("a-m", { portno: 1 });
+  const m1 = m.addPort("m-a", { portno: 1 });
+  const m2 = m.addPort("m-c", { portno: 2 });
+  const c1 = c.addPort("c-m", { portno: 1 });
+  mstp.link(a1, m1);
+  mstp.link(m2, c1);
+  for (const br of [a, m, c]) br.enable();
+  for (const p of [a1, m1, m2, c1]) p.enable();
+  mstp.step(CONVERGE);
+
+  const t = mstp.topology();
+
+  // The CIST spans the whole network: a is the single root and all three agree.
+  assert.equal(byName(t, "a").is_root, true);
+  for (const x of t.bridges)
+    assert.equal(
+      x.designated_root,
+      byName(t, "a").bridge_id,
+      `${x.name} agrees on the CIST root`,
+    );
+
+  // The RSTP switch in the middle has no MSTIs at all.
+  assert.equal(byName(t, "m").mstis.length, 0);
+
+  // a and c configured the same region, but with the RSTP boundary between them
+  // the MSTI cannot span it: each MSTP bridge is its own MSTI 1 regional root.
+  const ra = byName(t, "a").mstis[0].regional_root;
+  const rc = byName(t, "c").mstis[0].regional_root;
+  assert.notEqual(ra, rc, "the RSTP switch splits them into two regions");
+});
+
+test("STP, RSTP and MSTP in one triangle converge to a single tree", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096, protocol: "stp" });
+  const b = mstp.createBridge("b", { priority: 8192, protocol: "rstp" });
+  const c = mstp.createBridge("c", {
+    priority: 12288,
+    protocol: "mstp",
+    configId: { revision: 1, name: "r1" },
+  });
+  const a1 = a.addPort("a-b", { portno: 1 });
+  const a2 = a.addPort("a-c", { portno: 2 });
+  const b1 = b.addPort("b-a", { portno: 1 });
+  const b2 = b.addPort("b-c", { portno: 2 });
+  const c1 = c.addPort("c-a", { portno: 1 });
+  const c2 = c.addPort("c-b", { portno: 2 });
+  mstp.link(a1, b1); // stp  <-> rstp
+  mstp.link(a2, c1); // stp  <-> mstp
+  mstp.link(b2, c2); // rstp <-> mstp
+  for (const br of [a, b, c]) br.enable();
+  for (const p of [a1, a2, b1, b2, c1, c2]) p.enable();
+  mstp.step(CONVERGE);
+
+  const t = mstp.topology();
+  // One root (the STP bridge a) and everyone agrees on it.
+  assert.equal(byName(t, "a").is_root, true);
+  for (const x of t.bridges)
+    assert.equal(
+      x.designated_root,
+      byName(t, "a").bridge_id,
+      `${x.name} agrees`,
+    );
+
+  // The single loop is broken by exactly one blocked port.
+  const blocked = t.bridges
+    .flatMap((x) => x.ports)
+    .filter((p) => p.state === "blocking" || p.state === "discarding");
+  assert.equal(blocked.length, 1, "exactly one port breaks the loop");
+
+  // Ports facing the STP root fell back to STP; the RSTP<->MSTP link did not.
+  assert.equal(b1.status().send_rstp, false, "b's port to STP a fell back");
+  assert.equal(c1.status().send_rstp, false, "c's port to STP a fell back");
+  assert.equal(b2.status().send_rstp, true, "rstp<->mstp link stays RSTP");
+  assert.equal(c2.status().send_rstp, true, "rstp<->mstp link stays RSTP");
 });
 
 test("a chain longer than Max Age elects more than one root", async () => {

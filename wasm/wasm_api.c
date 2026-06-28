@@ -347,6 +347,7 @@ static void json_port(sb_t *s, int porth)
     sb_kv_str(s, &first, "state", state_name(st.state));
     sb_kv_bool(s, &first, "oper_edge", st.oper_edge_port);
     sb_kv_bool(s, &first, "oper_p2p", st.oper_p2p);
+    sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
     sb_kv_uint(s, &first, "external_path_cost", st.external_port_path_cost);
     sb_kv_uint(s, &first, "internal_path_cost", st.internal_port_path_cost);
     sb_bridge_id(s, &first, "designated_root", st.designated_root);
