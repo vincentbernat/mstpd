@@ -167,6 +167,22 @@ test("an unlinked, enabled port becomes designated/forwarding", async () => {
   assert.equal(p.state(), "forwarding");
 });
 
+test("two ports on the same segment: one is designated, the other backup", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const a1 = a.addPort("a1", { portno: 1 });
+  const a2 = a.addPort("a2", { portno: 2 });
+  mstp.link(a1, a2); // self-loop: a is the designated bridge on its own segment
+  for (const o of [a, a1, a2]) o.enable();
+  mstp.step(CONVERGE);
+
+  // Lower port id wins designated; the redundant one backs it up.
+  assert.equal(a1.role(), "Designated");
+  assert.equal(a1.state(), "forwarding");
+  assert.equal(a2.role(), "Backup");
+  assert.notEqual(a2.state(), "forwarding");
+});
+
 test("auto-edge: a port seeing no BPDU becomes edge unless auto-edge is off", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });
