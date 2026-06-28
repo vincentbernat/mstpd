@@ -160,11 +160,15 @@ static void sb_port_id(sb_t *s, bool *first, const char *key,
 
 /* Tracing */
 
+/* Simulation time in seconds, advanced one tick at a time by mstpw_step(). */
+static unsigned long g_now;
+
 /* An optional ring of recent state-machine events (proposal/agreement BPDUs and
  * port state changes) the host can drain. */
 #define MSTPW_TRACE_CAP 8192
 typedef struct
 {
+    unsigned long t;
     int port;
     const char *event;
 } trace_event_t;
@@ -177,6 +181,7 @@ static void trace_record(int porth, const char *event)
     if(!g_trace_on || g_trace_count >= MSTPW_TRACE_CAP)
         return;
     trace_event_t *e = &g_trace[g_trace_count++];
+    e->t = g_now;
     e->port = porth;
     e->event = event;
 }
@@ -816,6 +821,7 @@ API void mstpw_step(int seconds)
 {
     for(int i = 0; i < seconds; ++i)
     {
+        ++g_now;
         for(int j = 0; j < MSTPW_MAX_BRIDGES; ++j)
             if(g_bridges[j] && g_bridges[j]->stp_enabled)
                 MSTP_IN_one_second(g_bridges[j]);
@@ -842,6 +848,7 @@ API char *mstpw_trace_json(void)
         trace_event_t *e = &g_trace[i];
         bool first = true;
         sb_printf(&s, "%s{", i ? "," : "");
+        sb_kv_uint(&s, &first, "t", e->t);
         sb_kv_int(&s, &first, "port", e->port);
         if(port_handle_ok(e->port))
         {

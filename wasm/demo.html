@@ -265,7 +265,7 @@
 
       function logEvent(e) {
         const row = eventTpl.content.firstElementChild.cloneNode(true);
-        row.querySelector(".ts").textContent = fmtClock(clock);
+        row.querySelector(".ts").textContent = fmtClock(e.t);
         row.querySelector(".who").textContent = `${e.bridge}/${e.port_name}`;
         const tag = row.querySelector(".tag");
         tag.textContent = e.event;
@@ -362,10 +362,8 @@
       }
 
       function step(seconds) {
-        // Advance clock first so events drained during step() are stamped with
-        // the time the simulation reaches.
-        clock += seconds;
         mstp.step(seconds);
+        clock += seconds;
         render();
       }
 
