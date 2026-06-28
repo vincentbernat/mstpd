@@ -77,6 +77,7 @@ class Mstpd {
       ]),
       portDelete: c("mstpw_port_delete", "number", ["number"]),
       link: c("mstpw_link", "number", ["number", "number"]),
+      linkOneWay: c("mstpw_link_oneway", "number", ["number", "number"]),
       unlink: c("mstpw_unlink", "number", ["number"]),
       deliver: c("mstpw_deliver", null, []),
       step: c("mstpw_step", null, ["number"]),
@@ -176,6 +177,14 @@ class Mstpd {
     const pb = portB ? portB.handle : b;
     if (this._.link(pa, pb) < 0) throw new Error("link failed");
     return new Link(this, pa, pb, portA, portB);
+  }
+
+  // A unidirectional link: BPDUs flow from -> to only, modelling a one-way
+  // fibre failure. The receiver never hears the transmitter.
+  linkOneWay(from, to) {
+    const fromH = from instanceof Port ? from.handle : from;
+    const toH = to instanceof Port ? to.handle : to;
+    if (this._.linkOneWay(fromH, toH) < 0) throw new Error("linkOneWay failed");
   }
 
   // Register a callback fired for each state-machine event (proposal/agreement

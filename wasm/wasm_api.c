@@ -404,6 +404,7 @@ static void json_port(sb_t *s, int porth)
     sb_kv_bool(s, &first, "bpdu_guard_error", st.bpdu_guard_error);
     sb_kv_bool(s, &first, "restricted_role", st.restricted_role);
     sb_kv_bool(s, &first, "restricted_tcn", st.restricted_tcn);
+    sb_kv_bool(s, &first, "disputed", st.disputed);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
     sb_kv_uint(s, &first, "admin_external_path_cost",
                st.admin_external_port_path_cost);
@@ -437,6 +438,7 @@ static void json_port(sb_t *s, int porth)
                    mst.admin_internal_port_path_cost);
         sb_kv_uint(s, &ifirst, "internal_path_cost",
                    mst.internal_port_path_cost);
+        sb_kv_bool(s, &ifirst, "disputed", mst.disputed);
         sb_printf(s, "}");
         mfirst = false;
     }
@@ -782,6 +784,21 @@ API int mstpw_link(int a, int b)
         g_ports[g_ports[b].peer].peer = -1;
     g_ports[a].peer = b;
     g_ports[b].peer = a;
+    return 0;
+}
+
+/* A unidirectional link: BPDUs flow from->to only (a one-way fibre failure).
+ * `to` is left unable to transmit back, so `from` never hears it. */
+API int mstpw_link_oneway(int from, int to)
+{
+    if(!port_handle_ok(from) || !port_handle_ok(to) || from == to)
+        return -1;
+    if(g_ports[from].peer >= 0 && port_handle_ok(g_ports[from].peer))
+        g_ports[g_ports[from].peer].peer = -1;
+    if(g_ports[to].peer >= 0 && port_handle_ok(g_ports[to].peer))
+        g_ports[g_ports[to].peer].peer = -1;
+    g_ports[from].peer = to;
+    g_ports[to].peer = -1;
     return 0;
 }
 

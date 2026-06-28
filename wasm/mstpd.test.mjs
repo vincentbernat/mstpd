@@ -323,6 +323,33 @@ test("root guard: a restricted-role port refuses to become the root port", async
   assert.equal(pa.state(), "forwarding");
 });
 
+test("dispute mechanism: a designated port over a one-way link is held blocking", async () => {
+  const mstp = await loadMstpd();
+  // Superior bridge a, inferior bridge b, joined by a unidirectional link: b's
+  // BPDUs reach a, but a's never reach b. b never hears a superior, so it stays
+  // root and forwards (setting the Learning flag). a sees an inferior
+  // designated BPDU that still claims to be learning and records a dispute,
+  // which keeps its own designated port discarding so the pair cannot form a
+  // loop.
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.linkOneWay(pb, pa); // b -> a only
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+
+  // a detects the dispute and refuses to forward despite being designated.
+  assert.equal(pa.status().disputed, true, "a records the dispute");
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pa.state(), "blocking", "the disputed port is held discarding");
+
+  // b, hearing nothing back, believes it is the root and forwards unguarded.
+  assert.equal(byName(mstp.topology(), "b").is_root, true);
+  assert.equal(pb.status().disputed, false);
+  assert.equal(pb.state(), "forwarding");
+});
+
 test("configuration set through the API is reflected back in the JSON", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", {
