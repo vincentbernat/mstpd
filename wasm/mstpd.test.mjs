@@ -275,6 +275,31 @@ test("admin p2p: forcing point-to-point off is reflected in oper_p2p", async () 
   assert.equal(pb.status().oper_p2p, true, "neighbour still auto/p2p");
 });
 
+test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down", async () => {
+  const mstp = await loadMstpd();
+  mstp.setLogLevel(0); // the guard trip logs an expected error
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1, bpduGuard: true });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+
+  assert.equal(pa.status().bpdu_guard_port, true);
+  assert.equal(
+    pa.status().bpdu_guard_error,
+    false,
+    "guard has not tripped yet",
+  );
+
+  mstp.step(CONVERGE);
+
+  // The neighbour's BPDU lands on the guarded port, which err-disables itself.
+  assert.equal(pa.status().bpdu_guard_error, true, "guard tripped on the BPDU");
+  assert.equal(pa.status().up, false, "the port was taken down");
+  assert.equal(pa.role(), "Disabled");
+});
+
 test("configuration set through the API is reflected back in the JSON", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", {
@@ -531,14 +556,22 @@ test("two MSTP regions: the CIST spans both while each keeps its own MSTI tree",
     .flatMap((x) => x.ports)
     .filter((p) => p.state === "blocking" || p.state === "discarding");
   assert.equal(blocked.length, 1, "the CST breaks the inter-region loop");
-  assert.equal(db.role(), "Alternate", "the redundant boundary link is blocked");
+  assert.equal(
+    db.role(),
+    "Alternate",
+    "the redundant boundary link is blocked",
+  );
 
   // The active boundary port is a region gateway: its CIST role is Root, but
   // for the MSTI it takes the Master role (the path out of the region toward
   // the CIST root). Both regions keep speaking RSTP/MSTP across the boundary.
   assert.equal(ca.role(), "Root", "boundary port is the CIST root port");
   assert.equal(ca.role(1), "Master", "and the MSTI master toward the root");
-  assert.equal(ca.status().send_rstp, true, "no fallback to STP at the boundary");
+  assert.equal(
+    ca.status().send_rstp,
+    true,
+    "no fallback to STP at the boundary",
+  );
 });
 
 test("STP, RSTP and MSTP in one triangle converge to a single tree", async () => {

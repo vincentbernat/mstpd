@@ -400,6 +400,8 @@ static void json_port(sb_t *s, int porth)
     sb_kv_bool(s, &first, "oper_edge", st.oper_edge_port);
     sb_kv_str(s, &first, "admin_p2p", admin_p2p_name(st.admin_p2p));
     sb_kv_bool(s, &first, "oper_p2p", st.oper_p2p);
+    sb_kv_bool(s, &first, "bpdu_guard_port", st.bpdu_guard_port);
+    sb_kv_bool(s, &first, "bpdu_guard_error", st.bpdu_guard_error);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
     sb_kv_uint(s, &first, "admin_external_path_cost",
                st.admin_external_port_path_cost);
@@ -1025,6 +1027,17 @@ API int mstpw_set_port_admin_p2p(int porth, int p2p)
     memset(&cfg, 0, sizeof(cfg));
     cfg.set_admin_p2p = true;
     cfg.admin_p2p = (admin_p2p_t)p2p;
+    return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
+}
+
+API int mstpw_set_port_bpdu_guard(int porth, int yes)
+{
+    if(!port_handle_ok(porth))
+        return -1;
+    CIST_PortConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.set_bpdu_guard_port = true;
+    cfg.bpdu_guard_port = !!yes;
     return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
 }
 

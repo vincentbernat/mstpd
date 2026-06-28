@@ -131,6 +131,10 @@ class Mstpd {
         "number",
         "number",
       ]),
+      setPortBpduGuard: c("mstpw_set_port_bpdu_guard", "number", [
+        "number",
+        "number",
+      ]),
       portRole: c("mstpw_port_role", "number", ["number", "number"]),
       portState: c("mstpw_port_state", "number", ["number", "number"]),
       bridgeJson: c("mstpw_bridge_json", "number", ["number"]),
@@ -231,6 +235,7 @@ class Bridge {
     if (opts.edge) port.setAdminEdge(true);
     if (opts.autoEdge !== undefined) port.setAutoEdge(opts.autoEdge);
     if (opts.p2p !== undefined) port.setP2P(opts.p2p);
+    if (opts.bpduGuard !== undefined) port.setBpduGuard(opts.bpduGuard);
     return port;
   }
 
@@ -329,6 +334,9 @@ class Port {
   setAutoEdge(auto = true) {
     return this.mstp._.setPortAutoEdge(this.handle, auto ? 1 : 0);
   }
+  setBpduGuard(guard = true) {
+    return this.mstp._.setPortBpduGuard(this.handle, guard ? 1 : 0);
+  }
   // mode: "auto" | true | false (or numeric 0 | 1 | 2 = auto | force-on | force-off).
   setP2P(mode = "auto") {
     const map = { auto: 0, true: 1, false: 2 };
@@ -347,7 +355,9 @@ class Port {
   }
 
   status() {
-    return JSON.parse(takeString(this.mstp.m, this.mstp._.portJson(this.handle)));
+    return JSON.parse(
+      takeString(this.mstp.m, this.mstp._.portJson(this.handle)),
+    );
   }
 }
 
