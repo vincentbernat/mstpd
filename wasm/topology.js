@@ -6,6 +6,7 @@
 // a live, clickable diagram.
 //
 //   <link rel="stylesheet" href="topology.css" />
+//   <script type="module" src="dist/mstpd.mjs"></script>
 //   <script type="module" src="topology.js"></script>
 //
 // Grammar (one statement per line; # or // starts a comment):
@@ -22,9 +23,14 @@
 //   :tx-hold N
 //
 // Endpoint flags: edge, network, bpdu-guard, root-guard, no-p2p
+//
+// The mstpd core is loaded via its own <script> tag (above), which publishes
+// window.mstpd; this module picks loadMstpd off it rather than importing. We
+// could instead import it:
+//
+// import { loadMstpd } from "./dist/mstpd.mjs";
 
-import { loadMstpd } from "./dist/mstpd.mjs";
-
+const loadMstpd = window.mstpd.loadMstpd;
 const SVGNS = "http://www.w3.org/2000/svg";
 const UNIT = 110; // grid cell -> px
 const R = 24; // node radius in px
