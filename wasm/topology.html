@@ -1,0 +1,161 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mstpd topology snippets</title>
+    <link rel="stylesheet" href="topology.css" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 820px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color-scheme: light dark;
+      }
+      h1 {
+        font-size: 2rem;
+      }
+      h2 {
+        font-size: 1.4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>mstpd topology snippets</h1>
+    <h2>A ring with a redundant diagonal</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+A @0,0  prio=4096
+B @3,0
+C @0,2
+D @3,2
+
+A -- B
+A -- C
+B -- D
+C -- D
+B -- C  cost=100
+</pre
+    >
+
+    <h2>Classic STP is slow</h2>
+    <pre class="mstp-topology">
+:protocol stp
+:forward-delay 4
+:max-age 5
+:max-hops 5
+:tx-hold 3
+
+R @1.5,0  prio=0
+X @0,2
+Y @3,2
+
+R -- X
+R -- Y
+X -- Y
+</pre
+    >
+
+    <h2>Edge ports skip the wait</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+S  @1,0  prio=4096
+H1 @0,2
+H2 @2,2
+
+S -- H1  H1:edge
+S -- H2  H2:edge
+</pre
+    >
+
+    <h2>Root guard fences off a rogue</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+Core   @0,0  prio=4096
+Access @2,0  prio=8192
+Rogue  @2,2  prio=0
+
+Core -- Access
+Access -- Rogue  Access:root-guard
+</pre
+    >
+
+    <h2>BPDU guard shuts down a rogue</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+Access @0,0  prio=4096
+Rogue  @2,1  prio=8192
+
+Access -- Rogue  Access:bpdu-guard
+</pre
+    >
+
+    <h2>Talking to a legacy STP bridge</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+:forward-delay 4
+:max-age 6
+
+New  @0,0  prio=4096
+Peer @2,0  prio=12288
+Old  @0,2  prio=8192  proto=stp
+
+New -- Peer
+New -- Old
+</pre
+    >
+
+    <h2>Too wide for one tree</h2>
+    <pre class="mstp-topology">
+# With max-age set to 6, this 12-bridge has two bridges believing
+# they are root.
+
+:protocol rstp
+:max-age 6
+
+b0 @0,0
+b1 @1,0
+b2 @2,0
+b3 @3,0
+b4 @4,0
+b5 @5,0
+b6 @5,2
+b7 @4,2
+b8 @3,2
+b9 @2,2
+b10 @1,2
+b11 @0,2
+
+b0 -- b1
+b1 -- b2
+b2 -- b3
+b3 -- b4
+b4 -- b5
+b5 -- b6
+b6 -- b7
+b7 -- b8
+b8 -- b9
+b9 -- b10
+b10 -- b11
+</pre
+    >
+
+    <h2>A one-way link and dispute</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+A @0,0  prio=4096
+B @2,1  prio=8192
+
+B -> A
+</pre
+    >
+    <script type="module" src="topology.js"></script>
+  </body>
+</html>

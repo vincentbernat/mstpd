@@ -1,0 +1,216 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
+.mstp-topo {
+    --line: #8884; /* hairline borders and dividers */
+    --line-soft: #8882; /* fainter table row separators */
+    --fill: #8881; /* subtle surface tint */
+    --fill-hover: #8883;
+    --btn-line: #8888;
+    --accent: #2a7;
+    --accent-fill: #2a73;
+    --accent-fill-hover: #2a75;
+    --mono: ui-monospace, monospace;
+
+    font-family: system-ui, sans-serif;
+    border: 1px solid var(--line);
+    margin: 1rem 0;
+    overflow: hidden;
+    container-type: inline-size;
+
+    * {
+        box-sizing: border-box;
+    }
+
+    .mstp-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.6rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--fill);
+    }
+
+    .mstp-btn {
+        font: inherit;
+        padding: 0.3rem 0.7rem;
+        border-radius: 6px;
+        border: 1px solid var(--btn-line);
+        background: var(--fill);
+        cursor: pointer;
+        &:hover {
+            background: var(--fill-hover);
+        }
+        &.mstp-active,
+        &.mstp-accent {
+            background: var(--accent-fill);
+            border-color: var(--accent);
+            &:hover {
+                background: var(--accent-fill-hover);
+            }
+        }
+
+        &.mstp-toggle {
+            display: inline-grid;
+            place-items: center;
+
+            span {
+                grid-area: 1 / 1;
+                &:last-child {
+                    visibility: hidden;
+                }
+            }
+            &.mstp-active {
+                span:first-child {
+                    visibility: hidden;
+                }
+                span:last-child {
+                    visibility: visible;
+                }
+            }
+        }
+    }
+
+    .mstp-clock {
+        margin-left: auto;
+        opacity: 0.75;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .mstp-stage {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+    }
+
+    .mstp-canvas {
+        flex: 2 1 320px;
+        min-width: 0;
+        display: flex;
+
+        svg {
+            width: 100%;
+            max-height: 70vh;
+            background: var(--fill);
+            touch-action: manipulation;
+            user-select: none;
+        }
+    }
+
+    .mstp-panel {
+        position: relative;
+        flex: 1 1 220px;
+        min-width: 200px;
+        border-left: 1px solid var(--line);
+    }
+
+    /* Side-by-side: the body fills the panel (whose height the canvas sets) and
+       scrolls, so a long panel never makes the row taller than the diagram. */
+    .mstp-panel-body {
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+        padding: 0.6rem 0.8rem;
+
+        h3 {
+            font-size: 0.95rem;
+            margin: 0 0 0.5rem;
+        }
+    }
+
+    /* Stacked below the canvas: the panel takes its natural height again, and its
+       left border becomes a top border. */
+    @container (max-width: 540px) {
+        .mstp-panel {
+            border-left: 0;
+            border-top: 1px solid var(--line);
+        }
+        .mstp-panel-body {
+            position: static;
+        }
+    }
+
+    .mstp-hint {
+        opacity: 0.65;
+        font-size: 0.82rem;
+        margin: 0.6rem 0 0;
+    }
+
+    .mstp-kv,
+    .mstp-ports {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.84rem;
+
+        th,
+        td {
+            text-align: left;
+            padding: 0.18rem 0.3rem;
+            border-bottom: 1px solid var(--line-soft);
+            vertical-align: top;
+        }
+        td {
+            font-variant-numeric: tabular-nums;
+        }
+    }
+
+    .mstp-ports {
+        margin-top: 0.6rem;
+    }
+
+    .mstp-kv th {
+        font-weight: 400;
+        opacity: 0.7;
+        white-space: nowrap;
+    }
+
+    .mstp-badge {
+        font-size: 0.68rem;
+        border-radius: 4px;
+        padding: 0.05rem 0.4rem;
+        color: #fff;
+        vertical-align: 1px;
+    }
+
+    .mstp-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.2rem 0.9rem;
+        padding: 0.35rem 0.7rem;
+        border-top: 1px solid var(--line);
+        font-size: 0.78rem;
+        opacity: 0.8;
+
+        i {
+            display: inline-block;
+            width: 0.7rem;
+            height: 0.7rem;
+            border-radius: 2px;
+            vertical-align: -1px;
+            margin-right: 0.25rem;
+        }
+    }
+
+    .mstp-editor {
+        padding: 0.6rem 0.7rem;
+
+        .mstp-edit-area {
+            width: 100%;
+            min-height: 15rem;
+            resize: vertical;
+            font-family: var(--mono);
+            padding: 0.5rem 0.6rem;
+            border: 1px solid var(--line);
+            background: var(--fill);
+            color: inherit;
+            tab-size: 2;
+        }
+    }
+
+    .mstp-errors {
+        padding: 0.5rem 0.8rem;
+        border-top: 1px solid var(--line);
+        font-size: 0.82rem;
+        color: #e55;
+        font-family: var(--mono);
+    }
+}
