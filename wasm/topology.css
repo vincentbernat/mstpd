@@ -84,12 +84,12 @@
 
     .mstp-stage {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: stretch;
     }
 
     .mstp-canvas {
-        flex: 2 1 320px;
+        flex: 2 1 20em;
         min-width: 0;
         display: flex;
 
@@ -104,8 +104,7 @@
 
     .mstp-panel {
         position: relative;
-        flex: 1 1 220px;
-        min-width: 200px;
+        flex: 0 0 18em;
         border-left: 1px solid var(--line);
     }
 
@@ -125,7 +124,14 @@
 
     /* Stacked below the canvas: the panel takes its natural height again, and its
        left border becomes a top border. */
-    @container (max-width: 480px) {
+    @container (max-width: 38em) {
+        .mstp-stage {
+            flex-direction: column;
+        }
+        .mstp-canvas,
+        .mstp-panel {
+            flex: none;
+        }
         .mstp-panel {
             border-left: 0;
             border-top: 1px solid var(--line);
