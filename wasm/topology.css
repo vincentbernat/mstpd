@@ -76,6 +76,12 @@
         margin-left: auto;
         opacity: 0.75;
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        text-align: right;
+    }
+    .mstp-clock-b::before {
+        content: "·";
+        margin: 0 0.35em;
     }
 
     .mstp-stage {
@@ -121,13 +127,26 @@
 
     /* Stacked below the canvas: the panel takes its natural height again, and its
        left border becomes a top border. */
-    @container (max-width: 540px) {
+    @container (max-width: 480px) {
         .mstp-panel {
             border-left: 0;
             border-top: 1px solid var(--line);
         }
         .mstp-panel-body {
             position: static;
+        }
+
+        /* Stack the clock and shrink it. */
+        .mstp-clock {
+            font-size: 0.7rem;
+            line-height: 1.15;
+        }
+        .mstp-clock-t,
+        .mstp-clock-b {
+            display: block;
+        }
+        .mstp-clock-b::before {
+            content: none;
         }
     }
 

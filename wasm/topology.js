@@ -260,7 +260,9 @@ async function mount(pre) {
   const saveBtn = h("button", { class: "mstp-btn mstp-accent", text: "Save" });
   const discardBtn = h("button", { class: "mstp-btn", text: "Discard" });
   saveBtn.hidden = discardBtn.hidden = true;
-  const clock = h("span", { class: "mstp-clock", text: "t=0s" });
+  const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
+  const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
+  const clock = h("span", { class: "mstp-clock" }, clockTime, clockBpdu);
   bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock);
 
   const stage = h("div", { class: "mstp-stage" });
@@ -306,7 +308,8 @@ async function mount(pre) {
     editBtn,
     saveBtn,
     discardBtn,
-    clock,
+    clockTime,
+    clockBpdu,
     mstp: null,
     nodes: [],
     links: [],
@@ -573,7 +576,8 @@ function stateLabel(w, state) {
 function render(w) {
   const snap = snapshot(w);
   const bpdus = snap.topo.frames_delivered - w.frameBase;
-  w.clock.textContent = `t=${w.time}s · ${bpdus} BPDUs`;
+  w.clockTime.textContent = `t=${w.time}s`;
+  w.clockBpdu.textContent = `${bpdus} BPDUs`;
   w.svg.replaceChildren();
   const gEdges = svgEl("g", {}, w.svg);
   const gNodes = svgEl("g", {}, w.svg);
