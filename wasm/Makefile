@@ -19,12 +19,10 @@ CFLAGS = -O3 -DNO_DAEMON=1 -I. -I$(ROOT) -Icompat \
          -Wno-unused-parameter -Wno-unknown-warning-option
 EMFLAGS = \
 	-sMODULARIZE=1 \
-	-sEXPORT_ES6=1 \
 	-sEXPORT_NAME=createMstpd \
 	-sSINGLE_FILE=1 \
 	-sALLOW_MEMORY_GROWTH=1 \
 	-sENVIRONMENT=web,worker \
-	-sUSE_ES6_IMPORT_META=0 \
 	-sEXPORTED_FUNCTIONS=_free \
 	-sEXPORTED_RUNTIME_METHODS=$(RUNTIME_METHODS) \
 	-sINVOKE_RUN=0 \
@@ -32,8 +30,13 @@ EMFLAGS = \
 
 .DELETE_ON_ERROR:
 
+# Emit with a .js extension so Emscripten locates itself via
+# document.currentScript instead of import.meta.url (which it forces for .mjs
+# output). The wrapper's own `export`s keep the renamed file a valid ES module,
+# and SINGLE_FILE means there is no companion .wasm to find anyway.
 $(DIST)/mstpd.mjs: $(SRCS) $(HDRS) wrapper.js Makefile | $(DIST)
-	$(EMCC) $(CFLAGS) $(SRCS) -o $@ $(EMFLAGS)
+	$(EMCC) $(CFLAGS) $(SRCS) -o $(DIST)/mstpd.js $(EMFLAGS)
+	mv $(DIST)/mstpd.js $@
 
 $(DIST):
 	mkdir -p $(DIST)
