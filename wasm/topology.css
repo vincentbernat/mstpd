@@ -11,7 +11,9 @@
     --accent-fill-hover: #2a75;
     --mono: ui-monospace, monospace;
 
-    font-family: system-ui, sans-serif;
+    font:
+        16px/1.4 system-ui,
+        sans-serif;
     border: 1px solid var(--line);
     margin: 1rem 0;
     overflow: hidden;
@@ -32,8 +34,8 @@
 
     .mstp-btn {
         font: inherit;
-        padding: 0.3rem 0.7rem;
-        border-radius: 6px;
+        padding: 0.2rem 0.4rem;
+        border-radius: 5px;
         border: 1px solid var(--btn-line);
         background: var(--fill);
         cursor: pointer;

@@ -219,6 +219,27 @@ const timersOf = (d) => ({
   txHoldCount: d.txHoldCount,
 });
 
+// Widgets render inside a shadow root to ensure host page's CSS does not impact
+// it.
+let widgetSheet;
+function widgetStyleSheet() {
+  if (widgetSheet) return widgetSheet;
+  widgetSheet = new CSSStyleSheet();
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try {
+      rules = [...sheet.cssRules];
+    } catch {
+      continue; // cross-origin sheet we're not allowed to read
+    }
+    if (rules.some((r) => r.cssText.includes(".mstp-topo"))) {
+      widgetSheet.replaceSync(rules.map((r) => r.cssText).join("\n"));
+      break;
+    }
+  }
+  return widgetSheet;
+}
+
 // -- single widget --------------------------------------------------
 
 async function mount(pre) {
@@ -263,7 +284,12 @@ async function mount(pre) {
   errBox.hidden = true;
 
   root.append(bar, stage, legend, editor, errBox);
-  pre.replaceWith(root);
+
+  const host = h("div", { class: "mstp-host" });
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.adoptedStyleSheets = [widgetStyleSheet()];
+  shadow.append(root);
+  pre.replaceWith(host);
 
   const w = {
     model,
