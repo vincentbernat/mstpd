@@ -11,9 +11,7 @@
     --accent-fill-hover: #2a75;
     --mono: ui-monospace, monospace;
 
-    font:
-        16px/1.4 system-ui,
-        sans-serif;
+    font-family: system-ui, sans-serif;
     border: 1px solid var(--line);
     margin: 1rem 0;
     overflow: hidden;
