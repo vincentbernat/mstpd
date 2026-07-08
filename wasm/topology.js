@@ -85,6 +85,7 @@ function parseTopology(text) {
     if (!line) return;
     const ln = i + 1;
 
+    // Global options
     if (line[0] === ":") {
       const [key, ...rest] = line.slice(1).split(/\s+/);
       const val = rest.join(" ");
@@ -113,6 +114,7 @@ function parseTopology(text) {
       return;
     }
 
+    // Links
     let m;
     if ((m = line.match(/^(\S+)\s*(--|->)\s*(\S+)\s*(.*)$/))) {
       const [a, op, b] = [m[1], m[2], m[3]];
@@ -156,6 +158,8 @@ function parseTopology(text) {
       links.push(link);
       return;
     }
+
+    // Nodes
     if ((m = line.match(/^(\S+)\s+@\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*(.*)$/))) {
       const name = m[1];
       if (seen.has(name)) {
@@ -175,6 +179,7 @@ function parseTopology(text) {
       });
       return;
     }
+
     errors.push(`line ${ln}: cannot parse "${line}"`);
   });
 
