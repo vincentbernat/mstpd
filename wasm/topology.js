@@ -247,11 +247,13 @@ function widgetStyleSheet() {
 
 // -- single widget --------------------------------------------------
 
-async function mount(pre) {
-  if (pre.dataset.mstpMounted) return;
-  pre.dataset.mstpMounted = "1";
+async function mount(el) {
+  if (el.dataset.mstpMounted) return;
+  el.dataset.mstpMounted = "1";
 
-  const source = pre.textContent;
+  // A <div> wrapper holds its definition in a nested <pre><code> block.
+  const code = el.querySelector(":scope > pre > code");
+  const source = (code || el).textContent;
   const model = parseTopology(source);
 
   const root = h("div", { class: "mstp-topo" });
@@ -296,7 +298,7 @@ async function mount(pre) {
   const shadow = host.attachShadow({ mode: "open" });
   shadow.adoptedStyleSheets = [widgetStyleSheet()];
   shadow.append(root);
-  pre.replaceWith(host);
+  el.replaceWith(host);
 
   const w = {
     model,
@@ -953,10 +955,10 @@ function badge(text, color) {
 
 // -- bootstrap ------------------------------------------------------
 
-const SELECTOR = "pre.mstp-topology";
+const SELECTOR = "pre.mstp-topology, div.mstp-topology:has(> pre > code)";
 
 function mountAll(scope = document) {
-  for (const pre of scope.querySelectorAll(SELECTOR)) mount(pre);
+  for (const el of scope.querySelectorAll(SELECTOR)) mount(el);
 }
 
 if (document.readyState === "loading")
