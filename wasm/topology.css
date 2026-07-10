@@ -40,6 +40,11 @@
         &:hover {
             background: var(--fill-hover);
         }
+        &:disabled {
+            cursor: default;
+            opacity: 0.5;
+            background: var(--fill);
+        }
         &.mstp-active,
         &.mstp-accent {
             background: var(--accent-fill);

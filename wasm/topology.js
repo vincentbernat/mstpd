@@ -266,6 +266,7 @@ async function mount(el) {
   const editBtn = h("button", { class: "mstp-btn", text: "Edit" });
   const saveBtn = h("button", { class: "mstp-btn mstp-accent", text: "Save" });
   const discardBtn = h("button", { class: "mstp-btn", text: "Discard" });
+  runBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
   const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
@@ -333,7 +334,7 @@ async function mount(el) {
   showErrors(w);
 
   svg.addEventListener("pointerdown", (ev) => {
-    if (ev.target === svg) select(w, null);
+    if (w.mstp && ev.target === svg) select(w, null);
   });
   runBtn.onclick = () => setRunning(w, !w.timer);
   resetBtn.onclick = () => {
@@ -352,9 +353,11 @@ async function mount(el) {
     });
     build(w);
     select(w, null);
+    w.runBtn.disabled = w.resetBtn.disabled = false;
   } catch (e) {
     panelBody.textContent = "Failed to load simulation: " + e;
     console.error(e);
+    build(w);
   }
   return w;
 }
@@ -449,12 +452,12 @@ function saveEdit(w) {
   showErrors(w);
   leaveEdit(w);
   build(w);
-  select(w, null);
+  if (w.mstp) select(w, null);
 }
 
 function build(w) {
   const { mstp, model } = w;
-  for (const n of w.nodes) n.bridge.delete();
+  for (const n of w.nodes) n.bridge?.delete();
   w.nodes = [];
   w.links = [];
   w.time = 0;
@@ -464,13 +467,16 @@ function build(w) {
   const timers = timersOf(model.directives);
   for (const md of model.nodes) {
     const protocol = md.proto || model.directives.protocol;
-    const bridge = mstp.createBridge(md.name, {
-      priority: md.prio,
-      protocol,
-      configId: protocol === "mstp" ? { revision: 1, name: "r1" } : undefined,
-    });
-    bridge.setTimes(timers);
-    bridge.enable();
+    let bridge = null;
+    if (mstp) {
+      bridge = mstp.createBridge(md.name, {
+        priority: md.prio,
+        protocol,
+        configId: protocol === "mstp" ? { revision: 1, name: "r1" } : undefined,
+      });
+      bridge.setTimes(timers);
+      bridge.enable();
+    }
     const node = {
       name: md.name,
       x: md.x * UNIT,
@@ -488,29 +494,35 @@ function build(w) {
   for (const ld of model.links) {
     const a = byName.get(ld.a);
     const b = byName.get(ld.b);
-    const pa = a.bridge.addPort(`${a.name}.${a.nextPort}`, {
-      portno: a.nextPort++,
-      cost: ld.cost,
-      ...ld.aOpts,
-    });
-    const pb = b.bridge.addPort(`${b.name}.${b.nextPort}`, {
-      portno: b.nextPort++,
-      cost: ld.cost,
-      ...ld.bOpts,
-    });
-    pa.enable();
-    pb.enable();
+    let pa = null;
+    let pb = null;
     let link;
-    if (ld.oneway) {
-      // A one-way fault cannot be toggled.
-      mstp.linkOneWay(pa, pb);
-      link = { broken: false, toggle() {}, break() {}, restore() {} };
+    if (mstp) {
+      pa = a.bridge.addPort(`${a.name}.${a.nextPort}`, {
+        portno: a.nextPort++,
+        cost: ld.cost,
+        ...ld.aOpts,
+      });
+      pb = b.bridge.addPort(`${b.name}.${b.nextPort}`, {
+        portno: b.nextPort++,
+        cost: ld.cost,
+        ...ld.bOpts,
+      });
+      pa.enable();
+      pb.enable();
+      if (ld.oneway) {
+        // A one-way fault cannot be toggled.
+        mstp.linkOneWay(pa, pb);
+        link = { broken: false, toggle() {}, break() {}, restore() {} };
+      } else {
+        link = mstp.link(pa, pb);
+        if (ld.down) link.break();
+      }
+      a.ports.push(pa);
+      b.ports.push(pb);
     } else {
-      link = mstp.link(pa, pb);
-      if (ld.down) link.break();
+      link = { broken: ld.down, toggle() {}, break() {}, restore() {} };
     }
-    a.ports.push(pa);
-    b.ports.push(pb);
     w.links.push({
       a,
       b,
@@ -522,9 +534,9 @@ function build(w) {
     });
   }
 
-  w.frameBase = mstp.topology().frames_delivered;
+  w.frameBase = mstp?.topology().frames_delivered;
   render(w);
-  renderPanel(w);
+  if (mstp) renderPanel(w);
 }
 
 // -- running --------------------------------------------------------
@@ -554,6 +566,7 @@ function setRunning(w, on) {
 // -- state ----------------------------------------------------------
 
 function snapshot(w) {
+  if (!w.mstp) return { topo: null, bridges: new Map(), ports: new Map() };
   const topo = w.mstp.topology();
   const bridges = new Map();
   const ports = new Map();
@@ -582,7 +595,8 @@ function stateLabel(w, state) {
 
 function render(w) {
   const snap = snapshot(w);
-  const bpdus = snap.topo.frames_delivered - w.frameBase;
+  const live = !!w.mstp;
+  const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   w.svg.replaceChildren();
@@ -590,12 +604,12 @@ function render(w) {
   const gNodes = svgEl("g", {}, w.svg);
 
   for (const e of w.links) {
-    const pa = snap.ports.get(e.aPort.handle);
-    const pb = snap.ports.get(e.bPort.handle);
+    const pa = snap.ports.get(e.aPort?.handle);
+    const pb = snap.ports.get(e.bPort?.handle);
     const sa = effState(pa);
     const sb = effState(pb);
-    const active = sa === "forwarding" && sb === "forwarding";
-    const down = sa === "disabled" || sb === "disabled";
+    const active = live && sa === "forwarding" && sb === "forwarding";
+    const down = live ? sa === "disabled" || sb === "disabled" : e.link.broken;
 
     const dx = e.b.x - e.a.x;
     const dy = e.b.y - e.a.y;
@@ -607,32 +621,35 @@ function render(w) {
     const x2 = e.b.x - ux * R;
     const y2 = e.b.y - uy * R;
 
-    const hit = svgEl(
-      "line",
-      {
-        x1,
-        y1,
-        x2,
-        y2,
-        stroke: "transparent",
-        "stroke-width": 18,
-        "pointer-events": "stroke",
-      },
-      gEdges,
-    );
-    hit.style.cursor = "pointer";
-    hit.addEventListener("pointerdown", (ev) => {
-      ev.stopPropagation();
-      // Single click highlights. Double click cuts/restores.
-      if (w.lastClick.link === e && ev.timeStamp - w.lastClick.t < 400) {
-        w.lastClick = { link: null, t: 0 };
-        e.link.toggle();
+    if (live) {
+      // Larger hit target
+      const hit = svgEl(
+        "line",
+        {
+          x1,
+          y1,
+          x2,
+          y2,
+          stroke: "transparent",
+          "stroke-width": 18,
+          "pointer-events": "stroke",
+        },
+        gEdges,
+      );
+      hit.style.cursor = "pointer";
+      hit.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+        // Single click highlights. Double click cuts/restores.
+        if (w.lastClick.link === e && ev.timeStamp - w.lastClick.t < 400) {
+          w.lastClick = { link: null, t: 0 };
+          e.link.toggle();
+          select(w, { type: "link", ref: e });
+          return;
+        }
+        w.lastClick = { link: e, t: ev.timeStamp };
         select(w, { type: "link", ref: e });
-        return;
-      }
-      w.lastClick = { link: e, t: ev.timeStamp };
-      select(w, { type: "link", ref: e });
-    });
+      });
+    }
 
     svgEl(
       "line",
@@ -641,9 +658,9 @@ function render(w) {
         y1,
         x2,
         y2,
-        stroke: down ? "#999" : active ? "#2a7" : "#e55",
+        stroke: !live ? "#888" : down ? "#999" : active ? "#2a7" : "#e55",
         "stroke-width": w.selected?.ref === e ? 5 : active ? 3 : 2,
-        "stroke-dasharray": active || down ? "" : "7 5",
+        "stroke-dasharray": !live || active || down ? "" : "7 5",
         opacity: down ? 0.5 : 1,
         "pointer-events": "none",
       },
@@ -680,7 +697,7 @@ function render(w) {
       const wsym = 7; // half width of the base and the bar
       const px = -uy;
       const py = ux;
-      const color = down ? "#999" : active ? "#2a7" : "#e55";
+      const color = !live ? "#888" : down ? "#999" : active ? "#2a7" : "#e55";
       const ax = mx - ux * s; // base (transmitting side)
       const ay = my - uy * s;
       const cx = mx + ux * s; // tip (receiving side)
@@ -721,10 +738,10 @@ function render(w) {
   }
 
   for (const n of w.nodes) {
-    const b = snap.bridges.get(n.bridge.handle);
+    const b = snap.bridges.get(n.bridge?.handle);
     const isRoot = b && b.is_root;
     const g = svgEl("g", {}, gNodes);
-    g.style.cursor = "pointer";
+    if (live) g.style.cursor = "pointer";
     svgEl(
       "circle",
       {
@@ -759,10 +776,11 @@ function render(w) {
       },
       g,
     ).textContent = isRoot ? "ROOT" : b ? `${b.root_path_cost}` : "";
-    g.addEventListener("pointerdown", (ev) => {
-      ev.stopPropagation();
-      select(w, { type: "node", ref: n });
-    });
+    if (live)
+      g.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+        select(w, { type: "node", ref: n });
+      });
   }
 }
 
