@@ -136,6 +136,17 @@ static void sb_kv_str(sb_t *s, bool *first, const char *key, const char *v)
     sb_json_str(s, v);
 }
 
+/* Append raw bytes as a lower-case hex JSON string. */
+static void sb_kv_hex(sb_t *s, bool *first, const char *key,
+                      const unsigned char *data, int len)
+{
+    sb_key(s, first, key);
+    sb_printf(s, "\"");
+    for(int i = 0; i < len; ++i)
+        sb_printf(s, "%02x", data[i]);
+    sb_printf(s, "\"");
+}
+
 /* Append a bridge identifier as a JSON string "prio.mac". */
 static void sb_bridge_id(sb_t *s, bool *first, const char *key,
                          bridge_identifier_t id)
@@ -184,6 +195,74 @@ static void trace_record(int porth, const char *event)
     e->t = g_now;
     e->port = porth;
     e->event = event;
+}
+
+/* An optional capture of transmitted BPDUs the host reads to build a pcap.
+ * Capture is done in a ring buffer. Each entry keeps the raw BPDU bytes plus
+ * what a real capture needs: the sending port and its MAC. Time is the integer
+ * sim clock, with a within-second sequence so frames sent in the same tick keep
+ * their order. */
+#define MSTPW_CAPTURE_CAP 8192
+typedef struct
+{
+    unsigned long t;
+    unsigned int subsec;
+    int port;
+    int len;
+    unsigned char src[ETH_ALEN];
+    unsigned char *data;  /* owned */
+} capture_frame_t;
+static bool g_capture_on;
+static capture_frame_t g_capture[MSTPW_CAPTURE_CAP];
+static unsigned int g_capture_head;   /* index of the oldest frame */
+static unsigned int g_capture_count;  /* frames stored, up to the cap */
+static unsigned long g_capture_t;
+static unsigned int g_capture_subsec;
+
+static void capture_reset(void)
+{
+    for(unsigned int i = 0; i < g_capture_count; ++i)
+    {
+        unsigned int idx = (g_capture_head + i) % MSTPW_CAPTURE_CAP;
+        free(g_capture[idx].data);
+        g_capture[idx].data = NULL;
+    }
+    g_capture_head = 0;
+    g_capture_count = 0;
+    g_capture_t = 0;
+    g_capture_subsec = 0;
+}
+
+static void capture_record(port_t *prt, const void *data, int len)
+{
+    if(!g_capture_on)
+        return;
+    unsigned char *copy = malloc(len);
+    if(!copy)
+        return;
+    memcpy(copy, data, len);
+    if(g_now != g_capture_t)
+    {
+        g_capture_t = g_now;
+        g_capture_subsec = 0;
+    }
+    unsigned int idx;
+    if(g_capture_count < MSTPW_CAPTURE_CAP)
+        idx = (g_capture_head + g_capture_count++) % MSTPW_CAPTURE_CAP;
+    else
+    {
+        /* Ring is full: reuse the oldest slot and advance the head. */
+        idx = g_capture_head;
+        free(g_capture[idx].data);
+        g_capture_head = (g_capture_head + 1) % MSTPW_CAPTURE_CAP;
+    }
+    capture_frame_t *c = &g_capture[idx];
+    c->t = g_now;
+    c->subsec = g_capture_subsec++;
+    c->port = prt->sysdeps.if_index;
+    memcpy(c->src, prt->sysdeps.macaddr, ETH_ALEN);
+    c->len = len;
+    c->data = copy;
 }
 
 /* Bridge and port registries */
@@ -595,6 +674,9 @@ void MSTP_OUT_tx_bpdu(port_t *prt, bpdu_t *bpdu, int size)
             trace_record(porth, "agreement");
     }
 
+    /* Record the egress frame, whether or not a peer is listening. */
+    capture_record(prt, bpdu, size);
+
     if(!port_handle_ok(porth))
         return;
     int peer = g_ports[porth].peer;
@@ -928,6 +1010,45 @@ API char *mstpw_trace_json(void)
     }
     sb_printf(&s, "]");
     g_trace_count = 0;
+    return s.buf;
+}
+
+API void mstpw_capture_enable(int on)
+{
+    g_capture_on = !!on;
+    capture_reset();
+}
+
+/* Return the BPDUs currently in the ring as a JSON array, oldest first. This
+ * is non-destructive: the frames stay in the ring so it can be read again.
+ * Each entry is { t, subsec, port, src, data } with src and data hex-encoded;
+ * the host wraps the BPDU in Ethernet/LLC framing to build a pcap. Caller
+ * frees the string. */
+API char *mstpw_capture_json(void)
+{
+    sb_t s;
+    sb_init(&s);
+    sb_printf(&s, "[");
+    for(unsigned int i = 0; i < g_capture_count; ++i)
+    {
+        capture_frame_t *c = &g_capture[(g_capture_head + i) % MSTPW_CAPTURE_CAP];
+        bool first = true;
+        sb_printf(&s, "%s{", i ? "," : "");
+        sb_kv_uint(&s, &first, "t", c->t);
+        sb_kv_uint(&s, &first, "subsec", c->subsec);
+        sb_kv_int(&s, &first, "port", c->port);
+        if(port_handle_ok(c->port))
+        {
+            sb_kv_str(&s, &first, "port_name",
+                      g_ports[c->port].prt->sysdeps.name);
+            bridge_t *br = g_bridges[g_ports[c->port].brh];
+            sb_kv_str(&s, &first, "bridge", br ? br->sysdeps.name : "");
+        }
+        sb_kv_hex(&s, &first, "src", c->src, ETH_ALEN);
+        sb_kv_hex(&s, &first, "data", c->data, c->len);
+        sb_printf(&s, "}");
+    }
+    sb_printf(&s, "]");
     return s.buf;
 }
 

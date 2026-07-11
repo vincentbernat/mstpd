@@ -43,16 +43,83 @@ function priorityNibble(priority) {
   return priority > 15 ? Math.floor(priority / 4096) : priority;
 }
 
+// The multicast destination a bridge sends STP/RSTP/MSTP BPDUs to.
+const BPDU_DST = [0x01, 0x80, 0xc2, 0x00, 0x00, 0x00];
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++)
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+
+// Wrap a BPDU in the Ethernet 802.3 + LLC header a bridge puts on the wire:
+// the multicast destination, the port's source MAC, an 802.3 length field,
+// then the LLC header 42 42 03, then the BPDU itself.
+function ethFrame(srcHex, bpdu) {
+  const src = hexToBytes(srcHex);
+  const llc = [0x42, 0x42, 0x03];
+  const payloadLen = llc.length + bpdu.length;
+  const frame = new Uint8Array(14 + llc.length + bpdu.length);
+  frame.set(BPDU_DST, 0);
+  frame.set(src, 6);
+  frame[12] = (payloadLen >> 8) & 0xff;
+  frame[13] = payloadLen & 0xff;
+  frame.set(llc, 14);
+  frame.set(bpdu, 14 + llc.length);
+  return frame;
+}
+
+// Serialize captured BPDUs into a classic pcap file (LINKTYPE_ETHERNET) as a
+// Uint8Array. Timestamps come from the simulation clock: whole seconds in t,
+// with the within-second order kept in subsec (used as microseconds).
+function buildPcap(frames) {
+  const packets = frames.map((f) => ({
+    sec: f.t,
+    usec: Math.min(f.subsec, 999999),
+    bytes: ethFrame(f.src, hexToBytes(f.data)),
+  }));
+  let total = 24;
+  for (const p of packets) total += 16 + p.bytes.length;
+
+  const buf = new Uint8Array(total);
+  const view = new DataView(buf.buffer);
+  let o = 0;
+  // Global header, little-endian.
+  view.setUint32(o, 0xa1b2c3d4, true); // magic
+  view.setUint16(o + 4, 2, true); // version major
+  view.setUint16(o + 6, 4, true); // version minor
+  view.setInt32(o + 8, 0, true); // thiszone
+  view.setUint32(o + 12, 0, true); // sigfigs
+  view.setUint32(o + 16, 65535, true); // snaplen
+  view.setUint32(o + 20, 1, true); // network = LINKTYPE_ETHERNET
+  o += 24;
+  for (const p of packets) {
+    view.setUint32(o, p.sec, true);
+    view.setUint32(o + 4, p.usec, true);
+    view.setUint32(o + 8, p.bytes.length, true); // captured length
+    view.setUint32(o + 12, p.bytes.length, true); // original length
+    o += 16;
+    buf.set(p.bytes, o);
+    o += p.bytes.length;
+  }
+  return buf;
+}
+
 class Mstpd {
   #onEvent = null;
   #traceEnable;
   #traceJson;
+  #captureEnable;
+  #captureJson;
 
   constructor(Module) {
     this.m = Module;
     const c = (name, ret, args) => Module.cwrap(name, ret, args);
     this.#traceEnable = c("mstpw_trace_enable", null, ["number"]);
     this.#traceJson = c("mstpw_trace_json", "number", []);
+    this.#captureEnable = c("mstpw_capture_enable", null, ["number"]);
+    this.#captureJson = c("mstpw_capture_json", "number", []);
     this._ = {
       setLogLevel: c("mstpw_set_log_level", null, ["number"]),
       bridgeCreate: c("mstpw_bridge_create", "number", ["string", "string"]),
@@ -204,6 +271,33 @@ class Mstpd {
     if (!this.#onEvent) return;
     const events = JSON.parse(takeString(this.m, this.#traceJson()));
     for (const e of events) this.#onEvent(e);
+  }
+
+  // Start (or stop) recording every transmitted BPDU into a ring buffer that
+  // keeps the most recent ~8000 frames. Call pcap() to read them back at any
+  // time. Turning capture on clears anything recorded so far.
+  capture(on = true) {
+    this.#captureEnable(on ? 1 : 0);
+  }
+
+  // Return the captured BPDUs as a classic pcap file (a Uint8Array). The ring
+  // is left intact, so this can be called repeatedly as the capture grows.
+  pcap() {
+    const frames = JSON.parse(takeString(this.m, this.#captureJson()));
+    return buildPcap(frames);
+  }
+
+  // Browser helper: save the capture as a .pcap download.
+  downloadPcap(filename = "bpdus.pcap") {
+    const blob = new Blob([this.pcap()], {
+      type: "application/vnd.tcpdump.pcap",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // Advance one second's timers, transmitting BPDUs but not delivering them.

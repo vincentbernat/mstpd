@@ -42,6 +42,21 @@ Look at `demo.mjs` as a minimal example for Node.
 node demo.mjs
 ```
 
+### Capturing BPDUs
+
+Call `mstp.capture()` to start recording every transmitted BPDU into a ring
+buffer (the most recent ~8000 frames are kept). `mstp.pcap()` returns them as a
+classic pcap file (a `Uint8Array`), with each BPDU wrapped in the Ethernet/LLC
+framing a bridge puts on the wire, timestamped by the simulation clock. The
+result opens directly in Wireshark or `tshark`. In the browser,
+`mstp.downloadPcap()` saves it as a `.pcap` download.
+
+```js
+mstp.capture();
+mstp.step(30);
+writeFileSync("bpdus.pcap", mstp.pcap());
+```
+
 ### In the browser
 
 `wasm/demo.html` is an interactive version: step time and watch the ports

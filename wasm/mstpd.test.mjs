@@ -975,3 +975,102 @@ test("a chain longer than Max Age elects more than one root", async () => {
   const domains = new Set(t.bridges.map((b) => b.designated_root));
   assert.equal(domains.size, 2);
 });
+
+test("capture: transmitted BPDUs come back as a valid pcap", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+
+  mstp.capture();
+  mstp.step(CONVERGE);
+  const pcap = mstp.pcap();
+
+  // Global header: magic and LINKTYPE_ETHERNET, little-endian.
+  const view = new DataView(pcap.buffer);
+  assert.equal(view.getUint32(0, true), 0xa1b2c3d4, "pcap magic");
+  assert.equal(view.getUint32(20, true), 1, "LINKTYPE_ETHERNET");
+
+  // Walk the records and sanity-check the first frame's framing.
+  let o = 24;
+  let count = 0;
+  let firstFrame = null;
+  while (o < pcap.length) {
+    const inclLen = view.getUint32(o + 8, true);
+    const frame = pcap.subarray(o + 16, o + 16 + inclLen);
+    if (!firstFrame) firstFrame = frame;
+    count++;
+    o += 16 + inclLen;
+  }
+  assert.equal(o, pcap.length, "records tile the file exactly");
+  assert.ok(count > 0, "at least one BPDU was captured");
+
+  const dst = Array.from(firstFrame.subarray(0, 6));
+  assert.deepEqual(
+    dst,
+    [0x01, 0x80, 0xc2, 0x00, 0x00, 0x00],
+    "STP multicast dst",
+  );
+  const llc = Array.from(firstFrame.subarray(14, 17));
+  assert.deepEqual(llc, [0x42, 0x42, 0x03], "LLC header");
+  const payloadLen = (firstFrame[12] << 8) | firstFrame[13];
+  assert.equal(payloadLen, firstFrame.length - 14, "802.3 length field");
+
+  // Reading is non-destructive: the ring is intact, so a second call matches.
+  assert.equal(mstp.pcap().length, pcap.length, "pcap() is repeatable");
+});
+
+test("capture: off by default and cleared on re-enable", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const pa = a.addPort("a1", { portno: 1 });
+  a.enable();
+  pa.enable();
+
+  // No capture() call: pcap holds only the 24-byte global header.
+  mstp.step(5);
+  assert.equal(mstp.pcap().length, 24, "nothing captured when off");
+
+  mstp.capture();
+  mstp.step(5);
+  const withFrames = mstp.pcap().length;
+  assert.ok(withFrames > 24, "frames recorded once on");
+
+  // Re-enabling starts fresh.
+  mstp.capture();
+  assert.equal(mstp.pcap().length, 24, "re-enable clears the buffer");
+});
+
+test("capture: the ring keeps the most recent BPDUs, bounded", async () => {
+  const mstp = await loadMstpd();
+  buildTriangle(mstp);
+  mstp.capture();
+
+  // Run far longer than the ring can hold so it must wrap around.
+  mstp.step(20000);
+
+  const pcap = mstp.pcap();
+  const view = new DataView(pcap.buffer);
+  let o = 24;
+  let count = 0;
+  let minT = Infinity;
+  let maxT = 0;
+  while (o < pcap.length) {
+    const sec = view.getUint32(o, true);
+    const inclLen = view.getUint32(o + 8, true);
+    minT = Math.min(minT, sec);
+    maxT = Math.max(maxT, sec);
+    o += 16 + inclLen;
+    count++;
+  }
+
+  // Bounded: it never keeps more than the ring's capacity.
+  assert.ok(count > 1000, "a long run fills the ring");
+  assert.ok(count <= 8192, "capped at the ring capacity");
+  // The newest frame is from the end of the run and the oldest was dropped.
+  assert.ok(maxT >= 19990, "most recent frames are kept");
+  assert.ok(minT > 100, "oldest frames were overwritten");
+});
