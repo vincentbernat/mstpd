@@ -35,6 +35,7 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const UNIT = 110; // grid cell -> px
 const R = 24; // node radius in px
 const PAD = R + 24; // viewBox margin around the nodes
+const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 
 // Port/link state -> colour
 const STATE_COLOR = {
@@ -603,6 +604,19 @@ function render(w) {
   const gEdges = svgEl("g", {}, w.svg);
   const gNodes = svgEl("g", {}, w.svg);
 
+  // Parallel links between the same pair of bridges share a straight line, so
+  // fan them out perpendicular to it to keep each visible and separately
+  // clickable.
+  const pairKey = (e) =>
+    e.a.name < e.b.name
+      ? `${e.a.name}\0${e.b.name}`
+      : `${e.b.name}\0${e.a.name}`;
+  const groups = new Map();
+  for (const e of w.links) {
+    const k = pairKey(e);
+    (groups.get(k) || groups.set(k, []).get(k)).push(e);
+  }
+
   for (const e of w.links) {
     const pa = snap.ports.get(e.aPort?.handle);
     const pb = snap.ports.get(e.bPort?.handle);
@@ -616,10 +630,22 @@ function render(w) {
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const x1 = e.a.x + ux * R;
-    const y1 = e.a.y + uy * R;
-    const x2 = e.b.x - ux * R;
-    const y2 = e.b.y - uy * R;
+
+    // Perpendicular offset for this link within its parallel group. The sign
+    // keys off node names so A--B and B--A land on the same side.
+    const group = groups.get(pairKey(e));
+    const spread = (group.indexOf(e) - (group.length - 1) / 2) * PARALLEL_GAP;
+    const orient = e.a.name < e.b.name ? 1 : -1;
+    const ox = -uy * spread * orient;
+    const oy = ux * spread * orient;
+
+    // A parallel link is offset perpendicular by `spread`, so it meets the
+    // circle nearer its edge: back off along the link to land on the border.
+    const along = Math.sqrt(Math.max(R * R - spread * spread, 0));
+    const x1 = e.a.x + ux * along + ox;
+    const y1 = e.a.y + uy * along + oy;
+    const x2 = e.b.x - ux * along + ox;
+    const y2 = e.b.y - uy * along + oy;
 
     if (live) {
       // Larger hit target
@@ -733,8 +759,8 @@ function render(w) {
       );
     }
 
-    drawEndpoint(gEdges, e.a, e.b, pa);
-    drawEndpoint(gEdges, e.b, e.a, pb);
+    drawEndpoint(gEdges, e.a, e.b, pa, ox, oy);
+    drawEndpoint(gEdges, e.b, e.a, pb, ox, oy);
   }
 
   for (const n of w.nodes) {
@@ -784,14 +810,14 @@ function render(w) {
   }
 }
 
-function drawEndpoint(parent, from, to, ps) {
+function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
-  const px = from.x + ux * (R + 9);
-  const py = from.y + uy * (R + 9);
+  const px = from.x + ux * (R + 9) + ox;
+  const py = from.y + uy * (R + 9) + oy;
   const state = effState(ps);
   svgEl(
     "circle",

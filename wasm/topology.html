@@ -41,6 +41,19 @@ B -- C  cost=100
 </pre
     >
 
+    <h2>Multiple links between two nodes</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+A @0,0  prio=4096
+B @2,1  prio=8192
+
+A -- B
+A -- B
+A -- B
+</pre
+    >
+
     <h2>Classic STP is slow</h2>
     <pre class="mstp-topology">
 :protocol stp
