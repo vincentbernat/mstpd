@@ -79,7 +79,8 @@ class Mstpd {
       link: c("mstpw_link", "number", ["number", "number"]),
       linkOneWay: c("mstpw_link_oneway", "number", ["number", "number"]),
       unlink: c("mstpw_unlink", "number", ["number"]),
-      deliver: c("mstpw_deliver", null, []),
+      oneSecond: c("mstpw_one_second", null, []),
+      deliverBPDUs: c("mstpw_deliver_bpdus", "number", ["number"]),
       step: c("mstpw_step", null, ["number"]),
       setForceProtocolVersion: c("mstpw_set_force_protocol_version", "number", [
         "number",
@@ -192,8 +193,8 @@ class Mstpd {
   }
 
   // Register a callback fired for each state-machine event (proposal/agreement
-  // BPDUs and port state changes) as step()/deliver() runs. Pass null to stop.
-  // Events look like { t, port, port_name, bridge, event }.
+  // BPDUs and port state changes) as step() or deliverBPDUs() runs. Pass null
+  // to stop. Events look like { t, port, port_name, bridge, event }.
   onEvent(cb) {
     this.#onEvent = cb || null;
     this.#traceEnable(this.#onEvent ? 1 : 0);
@@ -205,13 +206,22 @@ class Mstpd {
     for (const e of events) this.#onEvent(e);
   }
 
+  // Advance one second's timers, transmitting BPDUs but not delivering them.
   oneSecond() {
-    this._.oneSecondAll();
-  }
-  deliver() {
-    this._.deliver();
+    this._.oneSecond();
     this.#drainEvents();
   }
+
+  // Deliver the frames queued right now. Returns the count delivered so the
+  // caller can loop until it hits 0. Events fired while these are delivered
+  // when calling this function a second time. Pass all=true to instead drain
+  // the whole cascade at once.
+  deliverBPDUs(all = false) {
+    const n = this._.deliverBPDUs(all ? 1 : 0);
+    this.#drainEvents();
+    return n;
+  }
+
   step(seconds = 1) {
     this._.step(seconds);
     this.#drainEvents();

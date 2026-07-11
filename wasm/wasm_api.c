@@ -837,28 +837,53 @@ API int mstpw_unlink(int porth)
     return 0;
 }
 
-/* Deliver all queued BPDUs (and any generated in response) until quiescent. */
-API void mstpw_deliver(void)
+/* One second of timer ticks, transmitting the BPDUs the tick produces but
+ * leaving them queued. */
+API void mstpw_one_second(void)
 {
-    frame_t *f;
+    ++g_now;
+    for(int j = 0; j < MSTPW_MAX_BRIDGES; ++j)
+        if(g_bridges[j] && g_bridges[j]->stp_enabled)
+            MSTP_IN_one_second(g_bridges[j]);
+}
+
+/* Deliver queued BPDUs. With `all`, keep going until the cascade is quiescent;
+ * otherwise deliver just the frames queued right now (one generation), leaving
+ * the frames they cause for the next call. Returns the number delivered, so a
+ * generation-at-a-time caller can loop until it returns 0. */
+API int mstpw_deliver_bpdus(int all)
+{
     unsigned long guard = 0;
-    while((f = frame_dequeue()))
+    int delivered = 0;
+    do
     {
-        if(++guard > MSTPW_DELIVER_CAP)
+        /* Detach the current generation up front so responses transmitted while
+         * we deliver it wait for the next round. */
+        frame_t *wave = g_q_head;
+        g_q_head = g_q_tail = NULL;
+        while(wave)
         {
-            ERROR("mstpw_deliver: frame cap reached, topology not converging?");
-            free(f);
-            while((f = frame_dequeue()))
+            frame_t *f = wave;
+            wave = f->next;
+            if(++guard > MSTPW_DELIVER_CAP)
+            {
+                ERROR("mstpw_deliver_bpdus: frame cap reached, not converging?");
                 free(f);
-            break;
+                while(wave) { frame_t *n = wave->next; free(wave); wave = n; }
+                while((f = frame_dequeue()))
+                    free(f);
+                return delivered;
+            }
+            if(port_handle_ok(f->dst) && g_ports[f->dst].prt->sysdeps.up)
+            {
+                ++g_frames_delivered;
+                ++delivered;
+                MSTP_IN_rx_bpdu(g_ports[f->dst].prt, (bpdu_t *)f->data, f->len);
+            }
+            free(f);
         }
-        if(port_handle_ok(f->dst) && g_ports[f->dst].prt->sysdeps.up)
-        {
-            ++g_frames_delivered;
-            MSTP_IN_rx_bpdu(g_ports[f->dst].prt, (bpdu_t *)f->data, f->len);
-        }
-        free(f);
-    }
+    } while(all && g_q_head);
+    return delivered;
 }
 
 /* Advance the whole simulation by `seconds`, delivering BPDUs after each tick. */
@@ -866,11 +891,8 @@ API void mstpw_step(int seconds)
 {
     for(int i = 0; i < seconds; ++i)
     {
-        ++g_now;
-        for(int j = 0; j < MSTPW_MAX_BRIDGES; ++j)
-            if(g_bridges[j] && g_bridges[j]->stp_enabled)
-                MSTP_IN_one_second(g_bridges[j]);
-        mstpw_deliver();
+        mstpw_one_second();
+        mstpw_deliver_bpdus(1);
     }
 }
 

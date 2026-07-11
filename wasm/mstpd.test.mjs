@@ -162,6 +162,79 @@ test("deleting a topology leaves no in-flight BPDUs to taint the next one", asyn
   );
 });
 
+test("delivering a second's BPDUs one generation at a time matches step()", async () => {
+  // oneSecond() followed by a loop of deliverBPDUs() walks a second's delivery
+  // cascade one BFS generation at a time. It must land in exactly the same
+  // place as step(1), and the generations must be causal: a proposal is
+  // delivered before the forwarding it leads to.
+  const roles = (m) =>
+    m
+      .topology()
+      .bridges.flatMap((b) =>
+        b.ports.map((p) => `${p.name}:${p.role}/${p.state}`),
+      )
+      .join(" ");
+
+  // Same topology on two engines: one stepped whole seconds, one wave by wave.
+  const whole = await loadMstpd();
+  buildTriangle(whole);
+  whole.step(CONVERGE);
+
+  const waved = await loadMstpd();
+  buildTriangle(waved);
+  let sawCascade = false;
+  for (let s = 0; s < CONVERGE; s++) {
+    waved.oneSecond();
+    let gens = 0;
+    while (waved.deliverBPDUs() > 0) gens++;
+    if (gens > 1) sawCascade = true; // a handshake took several generations
+  }
+  assert.equal(
+    roles(waved),
+    roles(whole),
+    "wave-driven convergence matches step()",
+  );
+  assert.ok(
+    sawCascade,
+    "at least one second needed multiple delivery generations",
+  );
+
+  // A fresh point-to-point handshake, watched generation by generation: record
+  // the first generation each event appears in (encoded as second*1000 + wave).
+  const eng = await loadMstpd();
+  const a = eng.createBridge("a", { priority: 4096 });
+  const b = eng.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  eng.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+
+  const genOf = {};
+  let events = [];
+  eng.onEvent((e) => events.push(e));
+  for (let s = 0; s < CONVERGE; s++) {
+    let gen = 0;
+    const record = () => {
+      for (const e of events)
+        if (!(e.event in genOf)) genOf[e.event] = s * 1000 + gen;
+      events = [];
+    };
+    events = [];
+    eng.oneSecond();
+    record();
+    while (eng.deliverBPDUs() > 0) {
+      gen++;
+      record();
+    }
+  }
+  assert.ok("proposal" in genOf, "a proposal was seen");
+  assert.ok("forwarding" in genOf, "a forwarding transition was seen");
+  assert.ok(
+    genOf.proposal < genOf.forwarding,
+    "the proposal is delivered before the forwarding it triggers",
+  );
+});
+
 test("two bridges with two parallel links: one link forwards, the other blocks", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });
