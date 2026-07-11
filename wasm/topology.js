@@ -36,6 +36,7 @@ const UNIT = 110; // grid cell -> px
 const R = 24; // node radius in px
 const PAD = R + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
+const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
 
 // Port/link state -> colour
 const STATE_COLOR = {
@@ -47,6 +48,17 @@ const STATE_COLOR = {
   disabled: "#999",
 };
 const colorFor = (s) => STATE_COLOR[s] || "#888";
+
+// BPDU type -> colour, for the pills that animate along the links while
+// running. A transmitted BPDU is sorted into exactly one of the base buckets.
+// tc is not a base type but the ring drawn around any pill whose frame also
+// carries a topology change (the TC flag, or a legacy TCN BPDU).
+const BPDU_COLOR = {
+  hello: "#3b82f6", // a plain periodic BPDU
+  proposal: "#f59e0b", // RST BPDU carrying the proposal flag
+  agreement: "#22c55e", // RST BPDU carrying the agreement flag
+  tc: "#ef4444", // ring: the frame also carries a topology change
+};
 
 // -- grammar --------------------------------------------------------
 
@@ -273,7 +285,18 @@ async function mount(el) {
   const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
   const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
   const clock = h("span", { class: "mstp-clock" }, clockTime, clockBpdu);
-  bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock);
+  const slowBox = document.createElement("input");
+  slowBox.type = "checkbox";
+  const slow = h(
+    "label",
+    {
+      class: "mstp-slow",
+      title: "Slow motion — stretch each second so BPDUs are easier to follow",
+    },
+    slowBox,
+    h("span", { text: "🐌" }),
+  );
+  bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock, slow);
 
   const stage = h("div", { class: "mstp-stage" });
   const svg = svgEl("svg", { preserveAspectRatio: "xMidYMid meet" });
@@ -320,6 +343,8 @@ async function mount(el) {
     discardBtn,
     clockTime,
     clockBpdu,
+    slow,
+    speed: 1, // real seconds per simulated second (snail bumps it to SLOW_FACTOR)
     mstp: null,
     nodes: [],
     links: [],
@@ -327,8 +352,13 @@ async function mount(el) {
     editing: false,
     time: 0,
     frameBase: 0,
-    timer: null,
+    raf: null, // animation-loop handle
+    clock: 0, // clock in ms (see animate)
+    last: 0, // timestamp of the previous frame
+    nextAt: 0, // clock time of the next step
     lastClick: { link: null, t: 0 }, // manual double-click detection
+    eventBuf: [], // proposal/agreement events from the last step
+    flights: [], // pills flying along the links
   };
 
   applyViewBox(w);
@@ -338,7 +368,7 @@ async function mount(el) {
   svg.addEventListener("pointerdown", (ev) => {
     if (w.mstp && ev.target === svg) select(w, null);
   });
-  runBtn.onclick = () => setRunning(w, !w.timer);
+  runBtn.onclick = () => setRunning(w, !w.raf);
   resetBtn.onclick = () => {
     setRunning(w, false);
     build(w);
@@ -347,12 +377,16 @@ async function mount(el) {
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
   discardBtn.onclick = () => exitEdit(w);
+  slowBox.onchange = () => {
+    w.speed = slowBox.checked ? SLOW_FACTOR : 1;
+  };
 
   try {
     w.mstp = await loadMstpd({
       print: () => {},
       printErr: () => {},
     });
+    w.mstp.onEvent((e) => w.eventBuf.push(e));
     build(w);
     select(w, null);
     w.runBtn.disabled = w.resetBtn.disabled = false;
@@ -427,7 +461,7 @@ function enterEdit(w) {
   w.editing = true;
   w.stage.hidden = w.legend.hidden = true;
   w.editor.hidden = false;
-  w.runBtn.hidden = w.resetBtn.hidden = w.editBtn.hidden = true;
+  w.runBtn.hidden = w.resetBtn.hidden = w.editBtn.hidden = w.slow.hidden = true;
   w.saveBtn.hidden = w.discardBtn.hidden = false;
   w.textarea.focus();
 }
@@ -436,7 +470,11 @@ function leaveEdit(w) {
   w.editing = false;
   w.editor.hidden = true;
   w.stage.hidden = w.legend.hidden = false;
-  w.runBtn.hidden = w.resetBtn.hidden = w.editBtn.hidden = false;
+  w.runBtn.hidden =
+    w.resetBtn.hidden =
+    w.editBtn.hidden =
+    w.slow.hidden =
+      false;
   w.saveBtn.hidden = w.discardBtn.hidden = true;
 }
 
@@ -464,6 +502,8 @@ function build(w) {
   w.links = [];
   w.time = 0;
   w.selected = null;
+  w.flights = [];
+  w.svg.querySelector(".mstp-pills")?.remove();
 
   const byName = new Map();
   const timers = timersOf(model.directives);
@@ -547,22 +587,227 @@ function build(w) {
 // Only one topology on the page runs at a time.
 let activeWidget = null;
 
+// Advance one simulated second (which may contain several waves of BPDUs).
+function stepTick(w) {
+  if (!w.mstp) return;
+  w.time += 1;
+
+  const waves = [];
+  let prev = capturePortTx(w);
+  const takeWave = (gen) => {
+    const events = w.eventBuf;
+    w.eventBuf = [];
+    const cur = capturePortTx(w);
+    const tx = new Map();
+    for (const [handle, ps] of cur) {
+      const b = prev.get(handle) || { tx: 0, tcn: 0 };
+      const n = ps.tx - b.tx;
+      if (n > 0) tx.set(handle, { n, tc: Math.max(0, ps.tcn - b.tcn) });
+    }
+    prev = cur;
+    if (tx.size) waves.push({ gen, events, tx });
+  };
+
+  w.eventBuf = [];
+  w.mstp.oneSecond();
+  takeWave(0);
+  // Each wave delivers a generation and may trigger more packets.
+  for (let gen = 1; gen < 50 && w.mstp.deliverBPDUs() > 0; gen++) takeWave(gen);
+
+  renderClock(w);
+
+  const finish = launchBpduFlights(w, waves);
+  if (!w.flights.length) redrawState(w);
+  w.nextAt = Math.max(w.clock + 1000, finish + 150);
+}
+
+// Redraw the diagram with the new port states.
+function redrawState(w) {
+  render(w);
+  renderPanel(w);
+}
+
+// The animation loop. One requestAnimationFrame runs the whole time we play.
+// Each frame it moves the clock on, does any due redraw or step, and draws the
+// pills. It reads the speed each frame, so the snail also affects pills already
+// flying.
+function animate(w, now) {
+  const dt = now - w.last;
+  w.last = now;
+  // Slower (by speed) while pills fly, real time when idle.
+  w.clock += dt / (w.flights.length ? w.speed : 1);
+
+  const flying = w.flights.length > 0;
+  w.flights = w.flights.filter((f) => w.clock < f.start + f.dur);
+  if (flying && !w.flights.length) redrawState(w); // last pill landed
+
+  if (w.clock >= w.nextAt) stepTick(w); // start the next second
+
+  drawPills(w);
+  w.raf = requestAnimationFrame((t) => animate(w, t));
+}
+
 function setRunning(w, on) {
-  if (on && !w.timer) {
+  if (on && !w.raf) {
     if (activeWidget && activeWidget !== w) setRunning(activeWidget, false);
     activeWidget = w;
-    w.timer = setInterval(() => {
-      w.time += 1;
-      w.mstp.step(1);
-      render(w);
-      renderPanel(w);
-    }, 1000);
+    w.last = performance.now();
+    w.nextAt = w.clock + 200;
+    w.raf = requestAnimationFrame((t) => animate(w, t));
     w.runBtn.classList.add("mstp-active");
-  } else if (!on && w.timer) {
-    clearInterval(w.timer);
-    w.timer = null;
+  } else if (!on && w.raf) {
+    cancelAnimationFrame(w.raf);
+    w.raf = null;
     if (activeWidget === w) activeWidget = null;
     w.runBtn.classList.remove("mstp-active");
+
+    // Pausing mid-flight: drop the pills and show the settled diagram.
+    w.flights = [];
+    w.svg.querySelector(".mstp-pills")?.remove();
+    render(w);
+    renderPanel(w);
+  }
+}
+
+// -- BPDU animation -------------------------------------------------
+//
+// Snapshot every port's transmit counters, keyed by port handle.
+function capturePortTx(w) {
+  const m = new Map();
+  const { ports } = snapshot(w);
+  for (const [handle, ps] of ports)
+    m.set(handle, { tx: ps.tx_bpdu || 0, tcn: ps.tx_tcn || 0 });
+  return m;
+}
+
+// The core only tells us the totals (n sent, of which nTc carried a topology
+// change) plus how many proposals/agreements it emitted, so we bucket rather
+// than track each frame exactly. A topology change is not a BPDU of its own:
+// the TC flag is enabled on whatever frame the port is already sending, so it
+// is an overlay on the base type.
+function classifyBpdus(n, nProp, nAgree, nTc) {
+  const pills = [];
+  for (let i = 0; i < nProp && pills.length < n; i++)
+    pills.push({ type: "proposal" });
+  for (let i = 0; i < nAgree && pills.length < n; i++)
+    pills.push({ type: "agreement" });
+  while (pills.length < n) pills.push({ type: "hello" });
+  for (let i = 0; i < nTc && i < pills.length; i++)
+    pills[pills.length - 1 - i].tc = true;
+  return pills;
+}
+
+// Count the proposals/agreements each port emitted in one wave, keyed by handle.
+function tallyEvents(events) {
+  const m = new Map();
+  for (const e of events) {
+    if (e.event !== "proposal" && e.event !== "agreement") continue;
+    const g = m.get(e.port) || { prop: 0, agree: 0 };
+    if (e.event === "proposal") g.prop++;
+    else g.agree++;
+    m.set(e.port, g);
+  }
+  return m;
+}
+
+const NO_EV = { prop: 0, agree: 0 };
+
+// Turn each wave's BPDUs into pills. Times are in clock ms. Returns the clock
+// time the last pill lands.
+function launchBpduFlights(w, waves) {
+  if (!w.mstp || !waves.length) return w.clock;
+  const now = w.clock;
+
+  // Resolve every pill first, so the per-wave spacing can match the slowest
+  // flight and no reply starts before its cause.
+  const pending = [];
+  let hop = 0;
+  let prevByPort = null; // the previous generation's tally (to spot replies)
+  for (const wave of waves) {
+    const evByPort = tallyEvents(wave.events);
+    for (const e of w.links) {
+      if (!e.geom) continue;
+      const { x1, y1, x2, y2 } = e.geom;
+      // Each endpoint that transmitted this wave sends its pills to its peer.
+      for (const [port, peer, sx, sy, tx, ty] of [
+        [e.aPort, e.bPort, x1, y1, x2, y2],
+        [e.bPort, e.aPort, x2, y2, x1, y1],
+      ]) {
+        if (!port) continue;
+        const t = wave.tx.get(port.handle);
+        if (!t) continue;
+        const ev = evByPort.get(port.handle) || NO_EV;
+        // A real handshake agreement answers a proposal the peer sent one
+        // generation earlier (it took a delivery hop to arrive). Count only
+        // those as agreements, the rest are plain hellos.
+        const peerPrevProp =
+          (peer && prevByPort && prevByPort.get(peer.handle)?.prop) || 0;
+        const nAgree = Math.min(ev.agree, peerPrevProp);
+        const pills = classifyBpdus(t.n, ev.prop, nAgree, t.tc);
+        const len = Math.hypot(tx - sx, ty - sy) || 1;
+        const dur = Math.max(300, Math.min(900, len / 0.4));
+        hop = Math.max(hop, dur);
+        pending.push({ gen: wave.gen, sx, sy, tx, ty, dur, pills });
+      }
+    }
+    prevByPort = evByPort;
+  }
+
+  let finish = w.clock;
+  for (const p of pending) {
+    const base = now + p.gen * hop;
+    const gap = Math.min(90, hop / (p.pills.length + 1));
+    p.pills.forEach((pill, i) => {
+      const start = base + i * gap;
+      finish = Math.max(finish, start + p.dur);
+      w.flights.push({
+        sx: p.sx,
+        sy: p.sy,
+        tx: p.tx,
+        ty: p.ty,
+        color: BPDU_COLOR[pill.type],
+        tc: !!pill.tc,
+        start,
+        dur: p.dur,
+      });
+    });
+  }
+  return finish;
+}
+
+// Draw each flying pill at its spot for the current clock. The pill layer goes
+// back on top each frame so render()'s redraw does not wipe it.
+function drawPills(w) {
+  let layer = w.svg.querySelector(".mstp-pills");
+  if (!w.flights.length) {
+    layer?.remove();
+    return;
+  }
+  if (!layer)
+    layer = svgEl("g", { class: "mstp-pills", "pointer-events": "none" });
+  else layer.replaceChildren();
+  w.svg.appendChild(layer);
+
+  for (const f of w.flights) {
+    if (w.clock < f.start) continue; // not launched yet
+    const p = (w.clock - f.start) / f.dur;
+    const x = f.sx + (f.tx - f.sx) * p;
+    const y = f.sy + (f.ty - f.sy) * p;
+    const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
+
+    svgEl(
+      "circle",
+      {
+        cx: x,
+        cy: y,
+        r: f.tc ? 5 : 4.5,
+        fill: f.color,
+        stroke: f.tc ? BPDU_COLOR.tc : "#fff8",
+        "stroke-width": f.tc ? 2.25 : 0.75,
+        opacity: fade,
+      },
+      layer,
+    );
   }
 }
 
@@ -596,12 +841,16 @@ function stateLabel(w, state) {
 
 // -- rendering ------------------------------------------------------
 
-function render(w) {
-  const snap = snapshot(w);
-  const live = !!w.mstp;
+function renderClock(w, snap = snapshot(w)) {
   const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
+}
+
+function render(w) {
+  const snap = snapshot(w);
+  const live = !!w.mstp;
+  renderClock(w, snap);
   w.svg.replaceChildren();
 
   const defs = svgEl("defs", {}, w.svg);
@@ -653,6 +902,8 @@ function render(w) {
     const y1 = e.a.y + uy * along + oy;
     const x2 = e.b.x - ux * along + ox;
     const y2 = e.b.y - uy * along + oy;
+
+    e.geom = { x1, y1, x2, y2 };
 
     if (live) {
       // Larger hit target

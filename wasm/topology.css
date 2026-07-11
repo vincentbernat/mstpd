@@ -87,6 +87,17 @@
         margin: 0 0.35em;
     }
 
+    .mstp-slow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        cursor: pointer;
+        user-select: none;
+    }
+    .mstp-slow input {
+        cursor: pointer;
+    }
+
     .mstp-stage {
         display: flex;
         flex-wrap: nowrap;
