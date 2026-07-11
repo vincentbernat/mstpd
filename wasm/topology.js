@@ -599,6 +599,9 @@ function build(w) {
     });
   }
 
+  // Record every BPDU from now on so the panel can offer a pcap download. A
+  // rebuild starts a fresh capture.
+  if (mstp) mstp.capture();
   w.frameBase = mstp?.topology().frames_delivered;
   render(w);
   if (mstp) renderPanel(w);
@@ -1204,6 +1207,7 @@ function renderPanel(w) {
         ["tx hold count", b0.tx_hold_count],
       );
     panel.appendChild(kvTable(rows));
+    if (w.mstp) panel.appendChild(pcapButton(w, "bpdus.pcap"));
     panel.appendChild(
       h("p", {
         class: "mstp-hint",
@@ -1248,6 +1252,8 @@ function renderPanel(w) {
     if (na) rows.push([`${e.a.name} flags`, na]);
     if (nb) rows.push([`${e.b.name} flags`, nb]);
     panel.appendChild(kvTable(rows));
+    if (w.mstp && e.aPort)
+      panel.appendChild(pcapButton(w, `${e.a.name}-${e.b.name}.pcap`, e.aPort));
     panel.appendChild(
       h("p", {
         class: "mstp-hint",
@@ -1332,6 +1338,16 @@ function badge(text, color) {
   const b = h("span", { class: "mstp-badge", text });
   b.style.background = color;
   return b;
+}
+
+// A button that saves captured BPDUs as a pcap: the whole capture when no port
+// is given, or just that port's link (both directions) when one is.
+function pcapButton(w, filename, port) {
+  return h("button", {
+    class: "mstp-btn mstp-pcap",
+    text: "📦 Download packets",
+    onclick: () => w.mstp.downloadPcap(port, filename),
+  });
 }
 
 // -- bootstrap ------------------------------------------------------

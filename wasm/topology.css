@@ -182,6 +182,11 @@
         margin: 0.6rem 0 0;
     }
 
+    .mstp-btn.mstp-pcap {
+        display: block;
+        margin-top: 0.6rem;
+    }
+
     .mstp-kv,
     .mstp-ports {
         border-collapse: collapse;
