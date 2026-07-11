@@ -77,8 +77,8 @@ X -- Y
 :protocol rstp
 
 S  @1,0  prio=4096
-H1 @0,2
-H2 @2,2
+H1 @0,2  icon=💻
+H2 @2,2  icon=💻
 
 S -- H1  H1:edge
 S -- H2  H2:edge
@@ -91,7 +91,7 @@ S -- H2  H2:edge
 
 Core   @0,0  prio=4096
 Access @2,0  prio=8192
-Rogue  @2,2  prio=0
+Rogue  @2,2  prio=0     icon=🦹
 
 Core -- Access
 Access -- Rogue  Access:root-guard
@@ -103,7 +103,7 @@ Access -- Rogue  Access:root-guard
 :protocol rstp
 
 Access @0,0  prio=4096
-Rogue  @2,1  prio=8192
+Rogue  @2,1  prio=8192  icon=🦹
 
 Access -- Rogue  Access:bpdu-guard
 </pre
@@ -117,7 +117,7 @@ Access -- Rogue  Access:bpdu-guard
 
 New  @0,0  prio=4096
 Peer @2,0  prio=12288
-Old  @0,2  prio=8192  proto=stp
+Old  @0,2  prio=8192  proto=stp  icon=🐌
 
 New -- Peer
 New -- Old

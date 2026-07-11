@@ -11,9 +11,9 @@
 //
 // Grammar (one statement per line; # or // starts a comment):
 //
-//   NAME @X,Y [prio=N] [proto=stp|rstp|mstp]   # a bridge at grid cell X,Y
-//   A -- B [cost=N] [down] [A:flag ...]        # a link between two bridges
-//   A -> B [cost=N] [A:flag ...]               # a one-way link (A transmits, B receives)
+//   NAME @X,Y [prio=N] [proto=stp|rstp|mstp] [icon=C]  # a bridge at grid cell X,Y
+//   A -- B [cost=N] [down] [A:flag ...]                # a link between two bridges
+//   A -> B [cost=N] [A:flag ...]                       # a one-way link (A transmits, B receives)
 //   # global options
 //   :protocol rstp|stp|mstp
 //   :forward-delay N
@@ -176,6 +176,7 @@ function parseTopology(text) {
         prio: opts.prio != null ? +opts.prio : undefined,
         proto:
           typeof opts.proto === "string" ? opts.proto.toLowerCase() : undefined,
+        icon: typeof opts.icon === "string" ? opts.icon : undefined,
         line: ln,
       });
       return;
@@ -484,6 +485,7 @@ function build(w) {
       y: md.y * UNIT,
       prio: md.prio,
       protocol,
+      icon: md.icon,
       bridge,
       ports: [],
       nextPort: 1,
@@ -601,6 +603,11 @@ function render(w) {
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   w.svg.replaceChildren();
+
+  const defs = svgEl("defs", {}, w.svg);
+  const gray = svgEl("filter", { id: "mstp-gray" }, defs);
+  svgEl("feColorMatrix", { type: "saturate", values: "0" }, gray);
+
   const gEdges = svgEl("g", {}, w.svg);
   const gNodes = svgEl("g", {}, w.svg);
 
@@ -780,6 +787,7 @@ function render(w) {
       },
       g,
     );
+    drawNodeGlyph(g, n);
     svgEl(
       "text",
       {
@@ -808,6 +816,62 @@ function render(w) {
         select(w, { type: "node", ref: n });
       });
   }
+}
+
+// A faint background glyph sitting behind the node's labels. Either the user's
+// icon character (desaturated and faded so the labels stay legible) or, by
+// default, the switch symbol.
+function drawNodeGlyph(parent, n) {
+  if (n.icon) {
+    svgEl(
+      "text",
+      {
+        x: n.x,
+        y: n.y,
+        "text-anchor": "middle",
+        "dominant-baseline": "central",
+        "font-size": 30,
+        opacity: 0.3,
+        filter: "url(#mstp-gray)",
+        "pointer-events": "none",
+      },
+      parent,
+    ).textContent = n.icon;
+    return;
+  }
+  const g = svgEl(
+    "g",
+    {
+      stroke: "#888",
+      "stroke-width": 2,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      fill: "none",
+      opacity: 0.3,
+      "pointer-events": "none",
+    },
+    parent,
+  );
+  const edge = 13; // half the total glyph width
+  const head = 4; // arrowhead size
+  // Two interleaved pairs of arrows. Each arrow spans half the width: tails
+  // meet at the centre and the tips point outward, the rightward pair on the
+  // right half and the leftward pair on the left half.
+  [-9, -3, 3, 9].forEach((dy, i) => {
+    const right = i % 2 === 0;
+    const y = n.y + dy;
+    const tail = n.x;
+    const tip = n.x + (right ? edge : -edge);
+    const dir = right ? -1 : 1;
+    svgEl("line", { x1: tail, y1: y, x2: tip, y2: y }, g);
+    svgEl(
+      "polyline",
+      {
+        points: `${tip + dir * head},${y - head} ${tip},${y} ${tip + dir * head},${y + head}`,
+      },
+      g,
+    );
+  });
 }
 
 function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
