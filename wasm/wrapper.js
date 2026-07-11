@@ -119,7 +119,7 @@ class Mstpd {
     this.#traceEnable = c("mstpw_trace_enable", null, ["number"]);
     this.#traceJson = c("mstpw_trace_json", "number", []);
     this.#captureEnable = c("mstpw_capture_enable", null, ["number"]);
-    this.#captureJson = c("mstpw_capture_json", "number", []);
+    this.#captureJson = c("mstpw_capture_json", "number", ["number"]);
     this._ = {
       setLogLevel: c("mstpw_set_log_level", null, ["number"]),
       bridgeCreate: c("mstpw_bridge_create", "number", ["string", "string"]),
@@ -281,15 +281,19 @@ class Mstpd {
   }
 
   // Return the captured BPDUs as a classic pcap file (a Uint8Array). The ring
-  // is left intact, so this can be called repeatedly as the capture grows.
-  pcap() {
-    const frames = JSON.parse(takeString(this.m, this.#captureJson()));
+  // is left intact, so this can be called repeatedly as the capture grows. Pass
+  // a Port (or its handle) to keep only that BPDUs sent or received on this
+  // port.
+  pcap(port) {
+    const handle = port instanceof Port ? port.handle : (port ?? -1);
+    const frames = JSON.parse(takeString(this.m, this.#captureJson(handle)));
     return buildPcap(frames);
   }
 
-  // Browser helper: save the capture as a .pcap download.
-  downloadPcap(filename = "bpdus.pcap") {
-    const blob = new Blob([this.pcap()], {
+  // Browser helper: save the capture as a .pcap download. Pass a Port (or its
+  // handle) to restrict it to that port's link, as pcap() does.
+  downloadPcap(port, filename = "bpdus.pcap") {
+    const blob = new Blob([this.pcap(port)], {
       type: "application/vnd.tcpdump.pcap",
     });
     const url = URL.createObjectURL(blob);

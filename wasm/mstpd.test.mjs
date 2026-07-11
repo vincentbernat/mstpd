@@ -1074,3 +1074,46 @@ test("capture: the ring keeps the most recent BPDUs, bounded", async () => {
   assert.ok(maxT >= 19990, "most recent frames are kept");
   assert.ok(minT > 100, "oldest frames were overwritten");
 });
+
+test("capture: pcap(port) downloads only that link", async () => {
+  const mstp = await loadMstpd();
+  const g = buildTriangle(mstp);
+  mstp.capture();
+  mstp.step(CONVERGE);
+
+  // Collect the distinct source MACs present in a pcap.
+  const srcSet = (pcap) => {
+    const view = new DataView(pcap.buffer);
+    const set = new Set();
+    let o = 24;
+    while (o < pcap.length) {
+      const inclLen = view.getUint32(o + 8, true);
+      const src = Array.from(pcap.subarray(o + 16 + 6, o + 16 + 12))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join(":");
+      set.add(src);
+      o += 16 + inclLen;
+    }
+    return set;
+  };
+
+  // The unfiltered capture holds every port's BPDUs: all six MACs.
+  const all = srcSet(mstp.pcap());
+  assert.equal(all.size, 6, "capture is global across all ports");
+
+  // a1 is on the a-b link: only a1's and b1's MACs, both directions.
+  const onAB = srcSet(mstp.pcap(g.a1));
+  assert.equal(onAB.size, 2, "one link carries exactly two MACs");
+  for (const s of onAB) assert.ok(all.has(s), "link MACs are a subset");
+
+  // a2 is on the a-c link: a disjoint pair of MACs.
+  const onAC = srcSet(mstp.pcap(g.a2));
+  assert.equal(onAC.size, 2);
+  for (const s of onAC) assert.ok(!onAB.has(s), "the two links do not overlap");
+
+  // A raw handle filters the same as a Port object.
+  assert.deepEqual(srcSet(mstp.pcap(g.a1.handle)), onAB);
+
+  // An unknown port yields an empty (header-only) capture.
+  assert.equal(mstp.pcap(9999).length, 24, "unknown port matches nothing");
+});

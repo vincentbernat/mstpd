@@ -1023,17 +1023,42 @@ API void mstpw_capture_enable(int on)
  * is non-destructive: the frames stay in the ring so it can be read again.
  * Each entry is { t, subsec, port, src, data } with src and data hex-encoded;
  * the host wraps the BPDU in Ethernet/LLC framing to build a pcap. Caller
- * frees the string. */
-API char *mstpw_capture_json(void)
+ * frees the string.
+ *
+ * With porth < 0 every frame is returned. With a valid port handle only the
+ * frames on that port's link are kept: those whose source MAC is the port's
+ * own or its current peer's. */
+API char *mstpw_capture_json(int porth)
 {
+    bool filter = porth >= 0;
+    const unsigned char *localmac = NULL, *peermac = NULL;
+    if(filter && port_handle_ok(porth))
+    {
+        localmac = g_ports[porth].prt->sysdeps.macaddr;
+        int peer = g_ports[porth].peer;
+        if(port_handle_ok(peer))
+            peermac = g_ports[peer].prt->sysdeps.macaddr;
+    }
+
     sb_t s;
     sb_init(&s);
     sb_printf(&s, "[");
+    bool first_frame = true;
     for(unsigned int i = 0; i < g_capture_count; ++i)
     {
         capture_frame_t *c = &g_capture[(g_capture_head + i) % MSTPW_CAPTURE_CAP];
+        if(filter)
+        {
+            /* An unknown port matches nothing; otherwise keep local or peer. */
+            if(!localmac)
+                continue;
+            if(0 != memcmp(c->src, localmac, ETH_ALEN)
+               && (!peermac || 0 != memcmp(c->src, peermac, ETH_ALEN)))
+                continue;
+        }
         bool first = true;
-        sb_printf(&s, "%s{", i ? "," : "");
+        sb_printf(&s, "%s{", first_frame ? "" : ",");
+        first_frame = false;
         sb_kv_uint(&s, &first, "t", c->t);
         sb_kv_uint(&s, &first, "subsec", c->subsec);
         sb_kv_int(&s, &first, "port", c->port);
