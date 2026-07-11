@@ -268,6 +268,27 @@ static frame_t *frame_dequeue(void)
     return f;
 }
 
+/* Drop every queued frame addressed to a port. */
+static void frame_purge_dst(int dst)
+{
+    frame_t **pp = &g_q_head;
+    g_q_tail = NULL;
+    while(*pp)
+    {
+        frame_t *f = *pp;
+        if(f->dst == dst)
+        {
+            *pp = f->next;
+            free(f);
+        }
+        else
+        {
+            g_q_tail = f;
+            pp = &f->next;
+        }
+    }
+}
+
 /* Safety cap: convergence of a sane topology empties the queue quickly. */
 #define MSTPW_DELIVER_CAP 2000000UL
 
@@ -691,6 +712,7 @@ API int mstpw_bridge_delete(int brh)
             free(g_ports[i].prt);
             g_ports[i].prt = NULL;
             g_ports[i].peer = -1;
+            frame_purge_dst(i);
         }
     }
 

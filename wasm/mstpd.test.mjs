@@ -95,6 +95,73 @@ test("breaking the active link reconverges and restoring recovers", async () => 
   assert.equal(g.c2.state(), "blocking");
 });
 
+test("deleting a topology leaves no in-flight BPDUs to taint the next one", async () => {
+  // Bridges and ports may be deleted and rebuilt on the same engine, and a
+  // rebuilt topology must converge exactly like a first-ever build: nothing
+  // from the deleted topology may carry over.
+  const buildRing = (mstp) => {
+    const at = (name, priority) => {
+      const br = mstp.createBridge(name, { priority });
+      br.enable();
+      return { br, next: 1 };
+    };
+    const nodes = {
+      A: at("A", 4096),
+      B: at("B", 32768),
+      C: at("C", 32768),
+      D: at("D", 32768),
+    };
+    const wire = (x, y) => {
+      const px = nodes[x].br.addPort(`${x}.${nodes[x].next++}`, {
+        portno: nodes[x].next,
+      });
+      const py = nodes[y].br.addPort(`${y}.${nodes[y].next++}`, {
+        portno: nodes[y].next,
+      });
+      px.enable();
+      py.enable();
+      mstp.link(px, py);
+    };
+    for (const [x, y] of [
+      ["A", "B"],
+      ["A", "C"],
+      ["B", "D"],
+      ["C", "D"],
+      ["B", "C"],
+    ])
+      wire(x, y);
+    return nodes;
+  };
+  const rootsAfterOneSecond = (mstp) => {
+    mstp.step(1);
+    return mstp
+      .topology()
+      .bridges.filter((b) => b.is_root)
+      .map((b) => b.name)
+      .sort();
+  };
+
+  const fresh = await loadMstpd();
+  buildRing(fresh);
+  const freshRoots = rootsAfterOneSecond(fresh);
+  assert.deepEqual(
+    freshRoots,
+    ["A", "B", "C", "D"],
+    "on a clean start no bridge has deferred yet after one second",
+  );
+
+  const reused = await loadMstpd();
+  let nodes = buildRing(reused);
+  reused.step(CONVERGE); // let it fully settle and transmit for a while
+  for (const n of Object.values(nodes)) n.br.delete();
+  buildRing(reused); // rebuild on the same engine
+  assert.deepEqual(
+    rootsAfterOneSecond(reused),
+    freshRoots,
+    "a rebuild converges like a first-ever build, with no residual state",
+  );
+});
+
 test("two bridges with two parallel links: one link forwards, the other blocks", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });
