@@ -304,9 +304,8 @@ async function mount(el) {
   const panel = h("div", { class: "mstp-panel" });
   const panelBody = h("div", { class: "mstp-panel-body" });
   panel.appendChild(panelBody);
-  stage.append(canvas, panel);
-
   const legend = h("div", { class: "mstp-legend" });
+  stage.append(canvas, panel, legend);
 
   // The editor replaces the stage and legend while editing the definition.
   const textarea = h("textarea", { class: "mstp-edit-area" });
@@ -318,7 +317,7 @@ async function mount(el) {
   const errBox = h("div", { class: "mstp-errors" });
   errBox.hidden = true;
 
-  root.append(bar, stage, legend, editor, errBox);
+  root.append(bar, stage, editor, errBox);
 
   const host = h("div", { class: "mstp-host" });
   const shadow = host.attachShadow({ mode: "open" });
@@ -433,15 +432,17 @@ function buildLegend(w) {
   ]);
   entries.push(["disabled", colorFor("disabled")]);
 
+  // Port states
+  const stateSet = h("div", { class: "mstp-legend-set" });
   for (const [label, color] of entries) {
     const sw = h("i");
     sw.style.background = color;
-    w.legend.appendChild(h("span", {}, sw, document.createTextNode(label)));
+    stateSet.appendChild(h("span", {}, sw, document.createTextNode(label)));
   }
+  w.legend.append(stateSet, h("span", { class: "mstp-sep" }));
 
-  // BPDU pills
-  w.legend.appendChild(h("span", { class: "mstp-sep" }));
-
+  // BPDU types
+  const pillSet = h("div", { class: "mstp-legend-set" });
   const pills = [["hello", BPDU_COLOR.hello]];
   if (hasRapid) {
     pills.push(["proposal", BPDU_COLOR.proposal]);
@@ -450,15 +451,15 @@ function buildLegend(w) {
   for (const [label, color] of pills) {
     const dot = h("i", { class: "mstp-dot" });
     dot.style.background = color;
-    w.legend.appendChild(h("span", {}, dot, document.createTextNode(label)));
+    pillSet.appendChild(h("span", {}, dot, document.createTextNode(label)));
   }
-
   const ring = h("i", { class: "mstp-dot" });
   ring.style.background = "transparent";
   ring.style.border = `2px solid ${BPDU_COLOR.tc}`;
-  w.legend.appendChild(
+  pillSet.appendChild(
     h("span", {}, ring, document.createTextNode("topology change")),
   );
+  w.legend.appendChild(pillSet);
 }
 
 function showErrors(w) {

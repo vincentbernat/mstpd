@@ -100,7 +100,7 @@
 
     .mstp-stage {
         display: flex;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         align-items: stretch;
     }
 
@@ -148,7 +148,13 @@
         .mstp-panel {
             flex: none;
         }
+        /* Order the legend between the canvas and the panel. */
+        .mstp-legend {
+            order: 1;
+            flex: none;
+        }
         .mstp-panel {
+            order: 2;
             border-left: 0;
             border-top: 1px solid var(--line);
         }
@@ -213,9 +219,10 @@
     }
 
     .mstp-legend {
+        flex: 1 0 100%;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.2rem 0.9rem;
+        gap: 0.2rem 0.8rem;
         padding: 0.35rem 0.7rem;
         border-top: 1px solid var(--line);
         font-size: 0.78rem;
@@ -223,12 +230,11 @@
 
         i {
             display: inline-block;
-            box-sizing: border-box;
             width: 0.7rem;
             height: 0.7rem;
             border-radius: 2px;
             vertical-align: -1px;
-            margin-right: 0.25rem;
+            margin-right: 0.3rem;
         }
         .mstp-dot {
             border-radius: 50%;
@@ -237,6 +243,14 @@
             align-self: stretch;
             border-left: 1px solid var(--line);
         }
+    }
+
+    .mstp-legend-set {
+        display: inline-flex;
+        flex-wrap: wrap;
+        min-width: 0;
+        align-items: center;
+        gap: 0.2rem 0.5rem;
     }
 
     .mstp-editor {
