@@ -1017,14 +1017,14 @@ API int mstpw_set_port_path_cost(int porth, int mstid, int cost)
     return MSTP_IN_set_msti_port_config(ptp, &cfg);
 }
 
-API int mstpw_set_port_admin_edge(int porth, int edge)
+API int mstpw_set_port_admin_edge(int porth, int yes)
 {
     if(!port_handle_ok(porth))
         return -1;
     CIST_PortConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.set_admin_edge_port = true;
-    cfg.admin_edge_port = !!edge;
+    cfg.admin_edge_port = !!yes;
     return MSTP_IN_set_cist_port_config(g_ports[porth].prt, &cfg);
 }
 
