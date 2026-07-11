@@ -95,6 +95,34 @@ test("breaking the active link reconverges and restoring recovers", async () => 
   assert.equal(g.c2.state(), "blocking");
 });
 
+test("two bridges with two parallel links: one link forwards, the other blocks", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const a1 = a.addPort("a1", { portno: 1 });
+  const a2 = a.addPort("a2", { portno: 2 });
+  const b1 = b.addPort("b1", { portno: 1 });
+  const b2 = b.addPort("b2", { portno: 2 });
+  mstp.link(a1, b1);
+  mstp.link(a2, b2);
+  for (const o of [a, b, a1, a2, b1, b2]) o.enable();
+  mstp.step(CONVERGE);
+
+  // a (lower priority) is root. Both its ports are designated and forward.
+  assert.equal(byName(mstp.topology(), "a").is_root, true);
+  assert.equal(a1.role(), "Designated");
+  assert.equal(a2.role(), "Designated");
+  assert.equal(a1.state(), "forwarding");
+  assert.equal(a2.state(), "forwarding");
+
+  // b picks the lower port id as its root port. The redundant one is a blocked
+  // alternate, so the parallel link does not form a loop.
+  assert.equal(b1.role(), "Root");
+  assert.equal(b1.state(), "forwarding");
+  assert.equal(b2.role(), "Alternate");
+  assert.equal(b2.state(), "blocking");
+});
+
 test("port path cost selects the root port", async () => {
   const mstp = await loadMstpd();
   const a = mstp.createBridge("a", { priority: 4096 });
