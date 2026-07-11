@@ -235,6 +235,68 @@ test("onEvent returns the RSTP states", async () => {
   assert.ok(events.every((e) => e.bridge === "a" || e.bridge === "b"));
 });
 
+test("a topology change is emitted the same second as the handshake, then persists briefly", async () => {
+  // BPDU emission is event-driven: when a port reaches forwarding, the
+  // TC-flagged BPDU goes out inside the very same deliver loop, not on the next
+  // one-second tick. The TC flag then rides the periodic hellos for the tcWhile
+  // window (a few seconds) before the port goes quiet again.
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const a1 = a.addPort("a1", { portno: 1 });
+  const b1 = b.addPort("b1", { portno: 1 });
+  mstp.link(a1, b1);
+  for (const o of [a, b, a1, b1]) o.enable();
+  mstp.step(CONVERGE); // a-b settles and its tcWhile timers expire
+
+  // Grow the network: a third bridge joins b. Its port reaching forwarding is a
+  // fresh topology change we can watch second by second.
+  const c = mstp.createBridge("c", { priority: 12288 });
+  const b2 = b.addPort("b2", { portno: 2 });
+  const c1 = c.addPort("c1", { portno: 1 });
+  mstp.link(b2, c1);
+  for (const o of [c, b2, c1]) o.enable();
+
+  let forwarded = false;
+  mstp.onEvent((e) => {
+    if (e.event === "forwarding") forwarded = true;
+  });
+  const ports = [a1, b1, b2, c1];
+  const txTcn = () => ports.reduce((s, p) => s + p.status().tx_tcn, 0);
+
+  const trace = [];
+  let prev = txTcn();
+  for (let t = 1; t <= 8; t++) {
+    forwarded = false;
+    mstp.step(1);
+    const now = txTcn();
+    trace.push({ t, forwarded, tc: now - prev });
+    prev = now;
+  }
+
+  // The handshake (a port reaching forwarding) and the TC BPDU land in the same
+  // second, and nothing announced a change before it.
+  const handshake = trace.find((s) => s.forwarded);
+  assert.ok(handshake, "the new port reached forwarding");
+  assert.ok(handshake.tc > 0, "the TC flag went out in the very same second");
+  assert.ok(
+    trace.filter((s) => s.t < handshake.t).every((s) => s.tc === 0),
+    "no topology change was announced before the handshake",
+  );
+
+  // The flag then keeps riding the periodic hellos for a couple of seconds and
+  // stops once tcWhile expires and the network is quiet again.
+  const after = trace.filter((s) => s.t > handshake.t);
+  assert.ok(
+    after.some((s) => s.tc > 0),
+    "the TC flag persists on the following hellos",
+  );
+  assert.ok(
+    after.some((s) => s.tc === 0),
+    "the TC flag eventually stops",
+  );
+});
+
 test("onEvent(null) detaches the listener", async () => {
   const mstp = await loadMstpd();
   let count = 0;
