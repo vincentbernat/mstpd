@@ -438,6 +438,27 @@ function buildLegend(w) {
     sw.style.background = color;
     w.legend.appendChild(h("span", {}, sw, document.createTextNode(label)));
   }
+
+  // BPDU pills
+  w.legend.appendChild(h("span", { class: "mstp-sep" }));
+
+  const pills = [["hello", BPDU_COLOR.hello]];
+  if (hasRapid) {
+    pills.push(["proposal", BPDU_COLOR.proposal]);
+    pills.push(["agreement", BPDU_COLOR.agreement]);
+  }
+  for (const [label, color] of pills) {
+    const dot = h("i", { class: "mstp-dot" });
+    dot.style.background = color;
+    w.legend.appendChild(h("span", {}, dot, document.createTextNode(label)));
+  }
+
+  const ring = h("i", { class: "mstp-dot" });
+  ring.style.background = "transparent";
+  ring.style.border = `2px solid ${BPDU_COLOR.tc}`;
+  w.legend.appendChild(
+    h("span", {}, ring, document.createTextNode("topology change")),
+  );
 }
 
 function showErrors(w) {

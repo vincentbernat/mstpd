@@ -223,11 +223,19 @@
 
         i {
             display: inline-block;
+            box-sizing: border-box;
             width: 0.7rem;
             height: 0.7rem;
             border-radius: 2px;
             vertical-align: -1px;
             margin-right: 0.25rem;
+        }
+        .mstp-dot {
+            border-radius: 50%;
+        }
+        .mstp-sep {
+            align-self: stretch;
+            border-left: 1px solid var(--line);
         }
     }
 
