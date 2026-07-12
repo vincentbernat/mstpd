@@ -941,12 +941,11 @@ function renderClock(w, snap = snapshot(w)) {
   const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
-  w.clockConv.textContent =
-    w.settledAt !== null
-      ? `🏁 ${w.settledAt - w.actionAt}s`
-      : w.time > w.actionAt
-        ? "⏳"
-        : "";
+  if (w.settledAt !== null)
+    w.clockConv.textContent = `🏁 ${w.settledAt - w.actionAt}s`;
+  else if (w.time <= w.actionAt) w.clockConv.replaceChildren();
+  else if (!w.clockConv.firstElementChild)
+    w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
 }
 
 function render(w) {

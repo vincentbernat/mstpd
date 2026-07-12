@@ -87,6 +87,11 @@
         content: "·";
         margin: 0 0.35em;
     }
+    .mstp-wait {
+        display: inline-block;
+        font-style: normal;
+        animation: mstp-flip 2.4s ease-in-out infinite;
+    }
 
     .mstp-slow {
         display: inline-flex;
@@ -283,5 +288,27 @@
         font-size: 0.82rem;
         color: #e55;
         font-family: var(--mono);
+    }
+}
+
+/* Let the sand run, then turn the hourglass over. Two half turns per cycle so
+   it ends up upright again. */
+@keyframes mstp-flip {
+    0%,
+    40% {
+        transform: rotate(0deg);
+    }
+    50%,
+    90% {
+        transform: rotate(180deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mstp-wait {
+        animation: none;
     }
 }
