@@ -1166,11 +1166,13 @@ function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
   const px = from.x + ux * (R + 9) + ox;
   const py = from.y + uy * (R + 9) + oy;
   svgEl(
-    "circle",
+    "rect",
     {
-      cx: px,
-      cy: py,
-      r: 6,
+      x: px - 6,
+      y: py - 6,
+      width: 12,
+      height: 12,
+      rx: 2,
       fill: colorFor(ps?.state),
       "pointer-events": "none",
     },
