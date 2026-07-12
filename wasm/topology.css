@@ -87,15 +87,29 @@
         margin: 0 0.35em;
     }
 
-    .mstp-slow {
+    .mstp-speed {
         display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        cursor: pointer;
-        user-select: none;
-    }
-    .mstp-slow input {
-        cursor: pointer;
+        border: 1px solid var(--btn-line);
+        border-radius: 5px;
+        background: var(--fill);
+        overflow: hidden;
+
+        .mstp-btn {
+            line-height: 1;
+            user-select: none;
+            border: none;
+            border-radius: 0;
+            background: none;
+            &:hover {
+                background: var(--fill-hover);
+            }
+            &.mstp-active {
+                background: var(--accent-fill);
+                &:hover {
+                    background: var(--accent-fill-hover);
+                }
+            }
+        }
     }
 
     .mstp-stage {
