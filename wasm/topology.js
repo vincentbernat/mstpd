@@ -762,6 +762,9 @@ function launchBpduFlights(w, waves) {
         [e.bPort, e.aPort, x2, y2, x1, y1],
       ]) {
         if (!port) continue;
+        // A one-way link delivers only a -> b, so the peer's transmissions
+        // never arrive: do not animate them.
+        if (e.oneway && port === e.bPort) continue;
         const t = wave.tx.get(port.handle);
         if (!t) continue;
         const ev = evByPort.get(port.handle) || NO_EV;
