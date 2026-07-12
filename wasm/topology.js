@@ -17,7 +17,6 @@
 //   # global options
 //   :protocol rstp|stp|mstp
 //   :forward-delay N
-//   :hello N
 //   :max-age N
 //   :max-hops N
 //   :tx-hold N
@@ -104,9 +103,6 @@ function parseTopology(text) {
       switch (key.toLowerCase()) {
         case "protocol":
           directives.protocol = val.toLowerCase();
-          break;
-        case "hello":
-          directives.helloTime = +val;
           break;
         case "forward-delay":
           directives.forwardDelay = +val;
@@ -229,8 +225,8 @@ function h(tag, opts = {}, ...kids) {
   return e;
 }
 
+// Hello time is left out: the core only accepts 2 seconds.
 const timersOf = (d) => ({
-  helloTime: d.helloTime,
   forwardDelay: d.forwardDelay,
   maxAge: d.maxAge,
   maxHops: d.maxHops,
