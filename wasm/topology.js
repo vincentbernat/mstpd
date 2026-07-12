@@ -410,12 +410,18 @@ function applyViewBox(w) {
   w.svg.style.aspectRatio = `${vbW} / ${vbH}`;
 }
 
-function buildLegend(w) {
-  w.legend.replaceChildren();
+// The protocols in play: what each bridge asks for, or the global default.
+function protocolsUsed(w) {
   const protos = new Set(
     w.model.nodes.map((n) => n.proto || w.model.directives.protocol),
   );
   if (!protos.size) protos.add(w.model.directives.protocol);
+  return protos;
+}
+
+function buildLegend(w) {
+  w.legend.replaceChildren();
+  const protos = protocolsUsed(w);
   const hasStp = protos.has("stp");
   const hasRapid = protos.has("rstp") || protos.has("mstp");
   // Rapid transitions skip learning, so it only shows in STP or on a link
@@ -1211,15 +1217,22 @@ function renderPanel(w) {
   if (!w.selected) {
     panel.appendChild(h("h3", { text: "Global timers" }));
     const b0 = snap.topo.bridges[0];
+    const protos = protocolsUsed(w);
+    // Hops are an MSTP notion. Inside a region MSTP counts hops instead of
+    // ageing BPDUs, and every MSTP bridge here joins the same region, so max age
+    // only matters when some bridge speaks STP or RSTP.
+    const hasMstp = protos.has("mstp");
+    const oneRegion = hasMstp && protos.size === 1;
     const rows = [["protocol", w.model.directives.protocol.toUpperCase()]];
-    if (b0)
+    if (b0) {
       rows.push(
         ["hello time", `${b0.hello_time} s`],
         ["forward delay", `${b0.forward_delay} s`],
-        ["max age", `${b0.max_age} s`],
-        ["max hops", b0.max_hops],
-        ["tx hold count", b0.tx_hold_count],
       );
+      if (!oneRegion) rows.push(["max age", `${b0.max_age} s`]);
+      if (hasMstp) rows.push(["max hops", b0.max_hops]);
+      rows.push(["tx hold count", b0.tx_hold_count]);
+    }
     panel.appendChild(kvTable(rows));
     if (w.mstp) panel.appendChild(pcapButton(w, "bpdus.pcap"));
     panel.appendChild(
