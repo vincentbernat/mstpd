@@ -45,7 +45,6 @@ const STATE_COLOR = {
   listening: "#d90",
   blocking: "#e55",
   discarding: "#e55",
-  disabled: "#999",
 };
 const colorFor = (s) => STATE_COLOR[s] || "#888";
 
@@ -435,7 +434,6 @@ function buildLegend(w) {
         : "discarding",
     colorFor("blocking"),
   ]);
-  entries.push(["disabled", colorFor("disabled")]);
 
   // Port states
   const stateSet = h("div", { class: "mstp-legend-set" });
@@ -855,10 +853,9 @@ function snapshot(w) {
   return { topo, bridges, ports };
 }
 
-// A down port keeps BR_STATE_BLOCKING but reports role "Disabled". Show it as
-// disabled.
-const effState = (ps) =>
-  !ps || ps.role === "Disabled" ? "disabled" : ps.state;
+// A down port keeps BR_STATE_BLOCKING but reports role "Disabled", so it lands
+// on the discarding colour like any other blocked port.
+const isDown = (ps) => !!ps && ps.role === "Disabled";
 
 // The core reports RSTP/MSTP's discarding state as the kernel's "blocking"
 // (mstpd maps it onto BR_STATE_BLOCKING). Show the RSTP name when appropriate.
@@ -906,10 +903,9 @@ function render(w) {
   for (const e of w.links) {
     const pa = snap.ports.get(e.aPort?.handle);
     const pb = snap.ports.get(e.bPort?.handle);
-    const sa = effState(pa);
-    const sb = effState(pb);
-    const active = live && sa === "forwarding" && sb === "forwarding";
-    const down = live ? sa === "disabled" || sb === "disabled" : e.link.broken;
+    const active =
+      live && pa?.state === "forwarding" && pb?.state === "forwarding";
+    const down = live ? isDown(pa) || isDown(pb) : e.link.broken;
 
     const dx = e.b.x - e.a.x;
     const dy = e.b.y - e.a.y;
@@ -1166,10 +1162,15 @@ function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
   const uy = dy / len;
   const px = from.x + ux * (R + 9) + ox;
   const py = from.y + uy * (R + 9) + oy;
-  const state = effState(ps);
   svgEl(
     "circle",
-    { cx: px, cy: py, r: 6, fill: colorFor(state), "pointer-events": "none" },
+    {
+      cx: px,
+      cy: py,
+      r: 6,
+      fill: colorFor(ps?.state),
+      "pointer-events": "none",
+    },
     parent,
   );
   const role = ps ? ps.role : "";
@@ -1248,8 +1249,8 @@ function renderPanel(w) {
         }),
       );
     const rows = [
-      [`${e.a.name} port`, roleState(w, pa), colorFor(effState(pa))],
-      [`${e.b.name} port`, roleState(w, pb), colorFor(effState(pb))],
+      [`${e.a.name} port`, roleState(w, pa), colorFor(pa?.state)],
+      [`${e.b.name} port`, roleState(w, pb), colorFor(pb?.state)],
       [
         "cost",
         e.cost != null ? e.cost : `auto (${pa ? pa.external_path_cost : "?"})`,
@@ -1298,7 +1299,7 @@ function renderPanel(w) {
     const tr = h("tr");
     tr.appendChild(h("td", { text: peerLabel(w, port, n) }));
     const td = h("td", { text: roleState(w, ps) });
-    td.style.color = colorFor(effState(ps));
+    td.style.color = colorFor(ps?.state);
     tr.appendChild(td);
     body.appendChild(tr);
   }
