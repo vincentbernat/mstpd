@@ -36,6 +36,7 @@ const R = 24; // node radius in px
 const PAD = R + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
+const QUIET_TIME = 4; // seconds without a port change before we call it converged
 
 // Port/link state -> colour
 const STATE_COLOR = {
@@ -662,15 +663,15 @@ function markAction(w) {
   renderClock(w);
 }
 
-// After a second has been simulated: note whether anything moved. A quiet
-// second means the ports settled back when they last changed.
+// After a second has been simulated: note whether anything moved. Once the
+// ports have been quiet for QUIET_TIME, record the convergebce time.
 function trackConvergence(w) {
   const sig = portSig(w);
   if (sig !== w.sig) {
     w.sig = sig;
     w.changeAt = w.time;
     w.settledAt = null;
-  } else if (w.settledAt === null) {
+  } else if (w.settledAt === null && w.time - w.changeAt >= QUIET_TIME) {
     w.settledAt = w.changeAt;
   }
 }
