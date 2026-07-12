@@ -1150,6 +1150,9 @@ function drawNodeGlyph(parent, n) {
   });
 }
 
+// Disabled and Designated both start with "D", so mark disabled ports with "X".
+const roleLetter = (role) => (role === "Disabled" ? "X" : role[0]);
+
 function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -1178,7 +1181,7 @@ function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
         "pointer-events": "none",
       },
       parent,
-    ).textContent = role[0];
+    ).textContent = roleLetter(role);
 }
 
 // -- details panel --------------------------------------------------
