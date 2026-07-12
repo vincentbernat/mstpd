@@ -279,7 +279,14 @@ async function mount(el) {
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
   const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
-  const clock = h("span", { class: "mstp-clock" }, clockTime, clockBpdu);
+  const clockConv = h("span", { class: "mstp-clock-c" });
+  const clock = h(
+    "span",
+    { class: "mstp-clock" },
+    clockTime,
+    clockBpdu,
+    clockConv,
+  );
   const slowBox = document.createElement("input");
   slowBox.type = "checkbox";
   const slow = h(
@@ -337,6 +344,7 @@ async function mount(el) {
     discardBtn,
     clockTime,
     clockBpdu,
+    clockConv,
     slow,
     speed: 1, // real seconds per simulated second (snail bumps it to SLOW_FACTOR)
     mstp: null,
@@ -346,6 +354,15 @@ async function mount(el) {
     editing: false,
     timerError: false, // the core refused the timers
     time: 0,
+    // Convergence: the ports are settled once none of them changes role or
+    // state any more. sig is the fingerprint we compare from second to second,
+    // actionAt the time of the last cut or restore, changeAt the time of the
+    // last change, and settledAt the changeAt of the last quiet second (null
+    // while the ports are still moving).
+    sig: "",
+    actionAt: 0,
+    changeAt: 0,
+    settledAt: null,
     frameBase: 0,
     raf: null, // animation-loop handle
     clock: 0, // clock in ms (see animate)
@@ -618,9 +635,44 @@ function build(w) {
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
   w.frameBase = mstp?.topology().frames_delivered;
+  markAction(w);
   showErrors(w);
   render(w);
   if (mstp) renderPanel(w);
+}
+
+// -- convergence ----------------------------------------------------
+//
+// The topology has converged once every port has stopped changing role and
+// state. BPDUs keep flowing after that (hellos, and the topology change flag
+// for a few more seconds), so the ports are what we watch.
+function portSig(w) {
+  const parts = [];
+  for (const [handle, ps] of snapshot(w).ports)
+    parts.push(`${handle}:${ps.role}:${ps.state}`);
+  return parts.join(" ");
+}
+
+// Start measuring again: on a rebuild, and on every link cut or restore. The
+// ports the link touches change right away, so that is not a change to count.
+function markAction(w) {
+  w.sig = portSig(w);
+  w.actionAt = w.changeAt = w.time;
+  w.settledAt = null;
+  renderClock(w);
+}
+
+// After a second has been simulated: note whether anything moved. A quiet
+// second means the ports settled back when they last changed.
+function trackConvergence(w) {
+  const sig = portSig(w);
+  if (sig !== w.sig) {
+    w.sig = sig;
+    w.changeAt = w.time;
+    w.settledAt = null;
+  } else if (w.settledAt === null) {
+    w.settledAt = w.changeAt;
+  }
 }
 
 // -- running --------------------------------------------------------
@@ -655,6 +707,7 @@ function stepTick(w) {
   // Each wave delivers a generation and may trigger more packets.
   for (let gen = 1; gen < 50 && w.mstp.deliverBPDUs() > 0; gen++) takeWave(gen);
 
+  trackConvergence(w);
   renderClock(w);
 
   const finish = launchBpduFlights(w, waves);
@@ -888,6 +941,12 @@ function renderClock(w, snap = snapshot(w)) {
   const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
+  w.clockConv.textContent =
+    w.settledAt !== null
+      ? `🏁 ${w.settledAt - w.actionAt}s`
+      : w.time > w.actionAt
+        ? "⏳"
+        : "";
 }
 
 function render(w) {
@@ -968,8 +1027,7 @@ function render(w) {
         // Single click highlights. Double click cuts/restores.
         if (w.lastClick.link === e && ev.timeStamp - w.lastClick.t < 400) {
           w.lastClick = { link: null, t: 0 };
-          e.link.toggle();
-          select(w, { type: "link", ref: e });
+          toggleLink(w, e);
           return;
         }
         w.lastClick = { link: e, t: ev.timeStamp };
@@ -1216,6 +1274,12 @@ function select(w, sel) {
   renderPanel(w);
 }
 
+function toggleLink(w, e) {
+  e.link.toggle();
+  markAction(w);
+  select(w, { type: "link", ref: e });
+}
+
 function renderPanel(w) {
   const panel = w.panel;
   panel.replaceChildren();
@@ -1267,10 +1331,7 @@ function renderPanel(w) {
         h("button", {
           class: "mstp-btn mstp-toggle" + (broken ? " mstp-active" : ""),
           html: "<span>Cut link</span><span>Restore link</span>",
-          onclick: () => {
-            e.link.toggle();
-            select(w, { type: "link", ref: e });
-          },
+          onclick: () => toggleLink(w, e),
         }),
       );
     const rows = [

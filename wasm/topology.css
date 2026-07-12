@@ -82,7 +82,8 @@
         white-space: nowrap;
         text-align: right;
     }
-    .mstp-clock-b::before {
+    .mstp-clock-b::before,
+    .mstp-clock-c:not(:empty)::before {
         content: "·";
         margin: 0 0.35em;
     }
@@ -168,10 +169,12 @@
             line-height: 1.15;
         }
         .mstp-clock-t,
-        .mstp-clock-b {
+        .mstp-clock-b,
+        .mstp-clock-c {
             display: block;
         }
-        .mstp-clock-b::before {
+        .mstp-clock-b::before,
+        .mstp-clock-c:not(:empty)::before {
             content: none;
         }
     }
