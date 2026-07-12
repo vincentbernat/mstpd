@@ -285,21 +285,18 @@ async function mount(el) {
   const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
   const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
   const clock = h("span", { class: "mstp-clock" }, clockTime, clockBpdu);
-  // The pace: a rabbit for normal, a snail for slow motion.
-  const fastBtn = h("button", {
-    class: "mstp-btn",
-    text: "🐇",
-    title: "Normal speed",
-  });
-  const slowBtn = h("button", {
-    class: "mstp-btn",
-    text: "🐌",
-    title: "Slow motion — stretch each second so BPDUs are easier to follow",
-  });
-  const speed = h("div", { class: "mstp-speed" }, fastBtn, slowBtn);
-  speed.setAttribute("role", "group");
-  speed.setAttribute("aria-label", "Speed");
-  bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock, speed);
+  const slowBox = document.createElement("input");
+  slowBox.type = "checkbox";
+  const slow = h(
+    "label",
+    {
+      class: "mstp-slow",
+      title: "Slow motion — stretch each second so BPDUs are easier to follow",
+    },
+    slowBox,
+    h("span", { text: "🐌" }),
+  );
+  bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock, slow);
 
   const stage = h("div", { class: "mstp-stage" });
   const svg = svgEl("svg", { preserveAspectRatio: "xMidYMid meet" });
@@ -345,9 +342,7 @@ async function mount(el) {
     discardBtn,
     clockTime,
     clockBpdu,
-    speedCtl: speed,
-    fastBtn,
-    slowBtn,
+    slow,
     speed: 1, // real seconds per simulated second (snail bumps it to SLOW_FACTOR)
     mstp: null,
     nodes: [],
@@ -381,9 +376,9 @@ async function mount(el) {
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
   discardBtn.onclick = () => exitEdit(w);
-  fastBtn.onclick = () => setSlow(w, false);
-  slowBtn.onclick = () => setSlow(w, true);
-  setSlow(w, false);
+  slowBox.onchange = () => {
+    w.speed = slowBox.checked ? SLOW_FACTOR : 1;
+  };
 
   try {
     w.mstp = await loadMstpd({
@@ -488,11 +483,7 @@ function enterEdit(w) {
   w.editing = true;
   w.stage.hidden = w.legend.hidden = true;
   w.editor.hidden = false;
-  w.runBtn.hidden =
-    w.resetBtn.hidden =
-    w.editBtn.hidden =
-    w.speedCtl.hidden =
-      true;
+  w.runBtn.hidden = w.resetBtn.hidden = w.editBtn.hidden = w.slow.hidden = true;
   w.saveBtn.hidden = w.discardBtn.hidden = false;
   w.textarea.focus();
 }
@@ -504,7 +495,7 @@ function leaveEdit(w) {
   w.runBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
-    w.speedCtl.hidden =
+    w.slow.hidden =
       false;
   w.saveBtn.hidden = w.discardBtn.hidden = true;
 }
@@ -679,17 +670,6 @@ function animate(w, now) {
 
   drawPills(w);
   w.raf = requestAnimationFrame((t) => animate(w, t));
-}
-
-function setSlow(w, on) {
-  w.speed = on ? SLOW_FACTOR : 1;
-  for (const [btn, active] of [
-    [w.fastBtn, !on],
-    [w.slowBtn, on],
-  ]) {
-    btn.classList.toggle("mstp-active", active);
-    btn.setAttribute("aria-pressed", String(active));
-  }
 }
 
 function setRunning(w, on) {
