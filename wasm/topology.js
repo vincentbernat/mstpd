@@ -419,9 +419,14 @@ function buildLegend(w) {
   if (!protos.size) protos.add(w.model.directives.protocol);
   const hasStp = protos.has("stp");
   const hasRapid = protos.has("rstp") || protos.has("mstp");
+  // Rapid transitions skip learning, so it only shows in STP or on a link
+  // forced off p2p, where the rapid handshake cannot happen.
+  const hasSlowLink = w.model.links.some(
+    (l) => l.aOpts.p2p === false || l.bOpts.p2p === false,
+  );
 
   const entries = [["forwarding", colorFor("forwarding")]];
-  if (hasStp) entries.push(["learning", colorFor("learning")]);
+  if (hasStp || hasSlowLink) entries.push(["learning", colorFor("learning")]);
   entries.push([
     hasStp && hasRapid
       ? "blocking/discarding"

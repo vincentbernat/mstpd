@@ -505,6 +505,44 @@ test("admin p2p: forcing point-to-point off is reflected in oper_p2p", async () 
   assert.equal(pb.status().oper_p2p, true, "neighbour still auto/p2p");
 });
 
+test("no-p2p link stays learning a whole second at a time", async () => {
+  // On a point-to-point link the proposal/agreement handshake moves a port
+  // straight into forwarding, so a per-second snapshot never sees it learning.
+  // Forcing p2p off disables the handshake, so the port must go through
+  // discarding -> learning -> forwarding on the forward-delay timer, and the
+  // learning state stays visible from one second to the next.
+  const statesSecondBySecond = async (p2p) => {
+    const mstp = await loadMstpd();
+    const a = mstp.createBridge("a", { priority: 4096 });
+    const b = mstp.createBridge("b", { priority: 8192 });
+    for (const br of [a, b]) br.setTimes({ forwardDelay: 4, maxAge: 6 });
+    const pa = a.addPort("a1", { portno: 1, p2p });
+    const pb = b.addPort("b1", { portno: 1, p2p });
+    mstp.link(pa, pb);
+    for (const o of [a, b, pa, pb]) o.enable();
+
+    const seen = new Set();
+    for (let s = 0; s < CONVERGE; s++) {
+      mstp.step(1);
+      seen.add(pa.state());
+      seen.add(pb.state());
+    }
+    assert.equal(
+      pa.state(),
+      "forwarding",
+      "designated port settles forwarding",
+    );
+    assert.equal(pb.state(), "forwarding", "root port settles forwarding");
+    return seen;
+  };
+
+  const slow = await statesSecondBySecond(false);
+  assert.ok(slow.has("learning"), "a no-p2p port dwells in learning");
+
+  const fast = await statesSecondBySecond(true);
+  assert.ok(!fast.has("learning"), "a p2p handshake skips visible learning");
+});
+
 test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down", async () => {
   const mstp = await loadMstpd();
   mstp.setLogLevel(0); // the guard trip logs an expected error

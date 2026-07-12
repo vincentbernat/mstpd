@@ -85,6 +85,18 @@ S -- H2  H2:edge
 </pre
     >
 
+    <h2>Shared media brings back learning</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+:forward-delay 4
+
+R @0,0  prio=0
+A @2,1
+
+R -- A  R:no-p2p A:no-p2p
+</pre
+    >
+
     <h2>Root guard fences off a rogue</h2>
     <pre class="mstp-topology">
 :protocol rstp
