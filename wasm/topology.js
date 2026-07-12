@@ -344,6 +344,7 @@ async function mount(el) {
     links: [],
     selected: null,
     editing: false,
+    timerError: false, // the core refused the timers
     time: 0,
     frameBase: 0,
     raf: null, // animation-loop handle
@@ -467,16 +468,24 @@ function buildLegend(w) {
   w.legend.appendChild(pillSet);
 }
 
+// Error message if there is an issue with timers
+const TIMER_ERROR =
+  "timers rejected, using the defaults: max age must be between 6 and 40, " +
+  "forward delay between 4 and 30, max hops between 6 and 100, " +
+  "tx hold count between 1 and 10, and 2 * (forward delay - 1) >= max age";
+
 function showErrors(w) {
+  const errors = [...w.model.errors];
+  if (w.timerError) errors.push(TIMER_ERROR);
   w.errBox.replaceChildren();
-  if (!w.model.errors.length) {
+  if (!errors.length) {
     w.errBox.hidden = true;
     return;
   }
   w.errBox.hidden = false;
   w.errBox.append(
     h("strong", { text: "Topology errors:" }),
-    ...w.model.errors.map((e) => h("div", { text: e })),
+    ...errors.map((e) => h("div", { text: e })),
   );
 }
 
@@ -527,6 +536,7 @@ function build(w) {
   for (const n of w.nodes) n.bridge?.delete();
   w.nodes = [];
   w.links = [];
+  w.timerError = false;
   w.time = 0;
   w.selected = null;
   w.flights = [];
@@ -543,7 +553,7 @@ function build(w) {
         protocol,
         configId: protocol === "mstp" ? { revision: 1, name: "r1" } : undefined,
       });
-      bridge.setTimes(timers);
+      if (bridge.setTimes(timers) < 0) w.timerError = true;
       bridge.enable();
     }
     const node = {
@@ -608,6 +618,7 @@ function build(w) {
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
   w.frameBase = mstp?.topology().frames_delivered;
+  showErrors(w);
   render(w);
   if (mstp) renderPanel(w);
 }
