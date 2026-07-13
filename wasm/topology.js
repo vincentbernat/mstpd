@@ -373,6 +373,8 @@ async function mount(el) {
     lastClick: { link: null, t: 0 }, // manual double-click detection
     eventBuf: [], // proposal/agreement events from the last step
     flights: [], // pills flying along the links
+    replay: [], // states waiting for their generation of pills to land
+    view: null, // the state the diagram and the panel draw (set by build)
   };
 
   applyViewBox(w);
@@ -559,6 +561,7 @@ function build(w) {
   w.time = 0;
   w.selected = null;
   w.flights = [];
+  w.replay = [];
   w.svg.querySelector(".mstp-pills")?.remove();
 
   const byName = new Map();
@@ -637,6 +640,7 @@ function build(w) {
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
   w.frameBase = mstp?.topology().frames_delivered;
+  w.view = snapshot(w);
   markAction(w);
   showErrors(w);
   render(w);
@@ -682,17 +686,21 @@ function trackConvergence(w) {
 // Only one topology on the page runs at a time.
 let activeWidget = null;
 
-// Advance one simulated second (which may contain several waves of BPDUs).
+// Advance one simulated second (which may contain several waves of BPDUs). The
+// whole second is simulated at once, but the states each generation of BPDUs
+// leaves behind are kept, so the replay can show the ports move wave by wave
+// instead of jumping to the end of the second.
 function stepTick(w) {
   if (!w.mstp) return;
   w.time += 1;
 
   const waves = [];
-  let prev = capturePortTx(w);
-  const takeWave = (gen) => {
+  const states = new Map(); // generation -> state once its BPDUs are delivered
+  let prev = capturePortTx(snapshot(w));
+  const takeWave = (gen, snap) => {
     const events = w.eventBuf;
     w.eventBuf = [];
-    const cur = capturePortTx(w);
+    const cur = capturePortTx(snap);
     const tx = new Map();
     for (const [handle, ps] of cur) {
       const b = prev.get(handle) || { tx: 0, tcn: 0 };
@@ -705,19 +713,27 @@ function stepTick(w) {
 
   w.eventBuf = [];
   w.mstp.oneSecond();
-  takeWave(0);
+  takeWave(0, snapshot(w));
   // Each wave delivers a generation and may trigger more packets.
-  for (let gen = 1; gen < 50 && w.mstp.deliverBPDUs() > 0; gen++) takeWave(gen);
+  for (let gen = 1; gen < 50 && w.mstp.deliverBPDUs() > 0; gen++) {
+    const snap = snapshot(w);
+    states.set(gen - 1, snap); // the generation just delivered
+    takeWave(gen, snap);
+  }
 
   trackConvergence(w);
   renderClock(w);
 
-  const finish = launchBpduFlights(w, waves);
-  if (!w.flights.length) redrawState(w);
+  const finish = launchBpduFlights(w, waves, states);
+  // Nothing to replay: whatever the timers did shows at once.
+  if (!w.flights.length) {
+    w.view = snapshot(w);
+    redrawState(w);
+  }
   w.nextAt = Math.max(w.clock + 1000, finish + 150);
 }
 
-// Redraw the diagram with the new port states.
+// Redraw the diagram with the state currently on show.
 function redrawState(w) {
   render(w);
   renderPanel(w);
@@ -735,7 +751,19 @@ function animate(w, now) {
 
   const flying = w.flights.length > 0;
   w.flights = w.flights.filter((f) => w.clock < f.start + FLIGHT_MS);
-  if (flying && !w.flights.length) redrawState(w); // last pill landed
+
+  // Show the state each generation of BPDUs left behind, once they have all
+  // landed. The queue is in generation order, so replay whatever is due.
+  let arrived = null;
+  while (w.replay.length && w.clock >= w.replay[0].at)
+    arrived = w.replay.shift().snap;
+  if (flying && !w.flights.length) {
+    w.view = snapshot(w); // the last pill landed: catch up with the core
+    redrawState(w);
+  } else if (arrived) {
+    w.view = arrived;
+    redrawState(w);
+  }
 
   if (w.clock >= w.nextAt) stepTick(w); // start the next second
 
@@ -759,6 +787,8 @@ function setRunning(w, on) {
 
     // Pausing mid-flight: drop the pills and show the settled diagram.
     w.flights = [];
+    w.replay = [];
+    w.view = snapshot(w);
     w.svg.querySelector(".mstp-pills")?.remove();
     render(w);
     renderPanel(w);
@@ -767,11 +797,10 @@ function setRunning(w, on) {
 
 // -- BPDU animation -------------------------------------------------
 //
-// Snapshot every port's transmit counters, keyed by port handle.
-function capturePortTx(w) {
+// Every port's transmit counters, keyed by port handle.
+function capturePortTx(snap) {
   const m = new Map();
-  const { ports } = snapshot(w);
-  for (const [handle, ps] of ports)
+  for (const [handle, ps] of snap.ports)
     m.set(handle, { tx: ps.tx_bpdu || 0, tcn: ps.tx_tcn || 0 });
   return m;
 }
@@ -808,9 +837,13 @@ function tallyEvents(events) {
 
 const NO_EV = { prop: 0, agree: 0 };
 
-// Turn each wave's BPDUs into pills. Times are in clock ms. Returns the clock
-// time the last pill lands.
-function launchBpduFlights(w, waves) {
+// Turn each wave's BPDUs into pills, and queue the state a generation produces
+// for the moment its last pill lands, so the ports never move while one of the
+// BPDUs that moved them is still on the wire. Every pill takes FLIGHT_MS to
+// cross its link, so a wave lands all at once and no reply starts before its
+// cause. Times are in clock ms. Returns the clock time the last pill lands.
+function launchBpduFlights(w, waves, states) {
+  w.replay = [];
   if (!w.mstp || !waves.length) return w.clock;
   const now = w.clock;
 
@@ -847,12 +880,15 @@ function launchBpduFlights(w, waves) {
   }
 
   let finish = w.clock;
+  const lastLanding = new Map(); // generation -> when its last pill lands
   for (const p of pending) {
     const base = now + p.gen * FLIGHT_MS;
     const gap = Math.min(90, FLIGHT_MS / (p.pills.length + 1));
     p.pills.forEach((pill, i) => {
       const start = base + i * gap;
-      finish = Math.max(finish, start + FLIGHT_MS);
+      const at = start + FLIGHT_MS;
+      finish = Math.max(finish, at);
+      lastLanding.set(p.gen, Math.max(lastLanding.get(p.gen) || 0, at));
       w.flights.push({
         sx: p.sx,
         sy: p.sy,
@@ -863,6 +899,14 @@ function launchBpduFlights(w, waves) {
         start,
       });
     });
+  }
+
+  // A port sending several BPDUs in one wave staggers them, so a generation can
+  // still be landing when the next one starts: keep the queue going forward.
+  let at = 0;
+  for (const gen of [...lastLanding.keys()].sort((a, b) => a - b)) {
+    at = Math.max(at, lastLanding.get(gen));
+    if (states.has(gen)) w.replay.push({ at, snap: states.get(gen) });
   }
   return finish;
 }
@@ -932,8 +976,11 @@ function stateLabel(w, state) {
 
 // -- rendering ------------------------------------------------------
 
-function renderClock(w, snap = snapshot(w)) {
-  const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
+// The clock follows the simulation, not the replay: it reports the whole second
+// as soon as it has been simulated.
+function renderClock(w) {
+  const { topo } = snapshot(w);
+  const bpdus = topo ? topo.frames_delivered - w.frameBase : 0;
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   if (w.settledAt !== null)
@@ -944,9 +991,9 @@ function renderClock(w, snap = snapshot(w)) {
 }
 
 function render(w) {
-  const snap = snapshot(w);
+  const snap = w.view;
   const live = !!w.mstp;
-  renderClock(w, snap);
+  renderClock(w);
   w.svg.replaceChildren();
 
   const defs = svgEl("defs", {}, w.svg);
@@ -1270,6 +1317,7 @@ function select(w, sel) {
 
 function toggleLink(w, e) {
   e.link.toggle();
+  w.view = snapshot(w); // the ports the link touches change right away
   markAction(w);
   select(w, { type: "link", ref: e });
 }
@@ -1277,7 +1325,7 @@ function toggleLink(w, e) {
 function renderPanel(w) {
   const panel = w.panel;
   panel.replaceChildren();
-  const snap = snapshot(w);
+  const snap = w.view;
 
   if (!w.selected) {
     panel.appendChild(h("h3", { text: "Global timers" }));
