@@ -36,6 +36,7 @@ const R = 24; // node radius in px
 const PAD = R + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
+const FLIGHT_MS = 800; // how long a BPDU takes to cross a link
 const QUIET_TIME = 4; // seconds without a port change before we call it converged
 
 // Port/link state -> colour
@@ -733,7 +734,7 @@ function animate(w, now) {
   w.clock += dt / (w.flights.length ? w.speed : 1);
 
   const flying = w.flights.length > 0;
-  w.flights = w.flights.filter((f) => w.clock < f.start + f.dur);
+  w.flights = w.flights.filter((f) => w.clock < f.start + FLIGHT_MS);
   if (flying && !w.flights.length) redrawState(w); // last pill landed
 
   if (w.clock >= w.nextAt) stepTick(w); // start the next second
@@ -813,10 +814,7 @@ function launchBpduFlights(w, waves) {
   if (!w.mstp || !waves.length) return w.clock;
   const now = w.clock;
 
-  // Resolve every pill first, so the per-wave spacing can match the slowest
-  // flight and no reply starts before its cause.
   const pending = [];
-  let hop = 0;
   let prevByPort = null; // the previous generation's tally (to spot replies)
   for (const wave of waves) {
     const evByPort = tallyEvents(wave.events);
@@ -842,10 +840,7 @@ function launchBpduFlights(w, waves) {
           (peer && prevByPort && prevByPort.get(peer.handle)?.prop) || 0;
         const nAgree = Math.min(ev.agree, peerPrevProp);
         const pills = classifyBpdus(t.n, ev.prop, nAgree, t.tc);
-        const len = Math.hypot(tx - sx, ty - sy) || 1;
-        const dur = Math.max(300, Math.min(900, len / 0.4));
-        hop = Math.max(hop, dur);
-        pending.push({ gen: wave.gen, sx, sy, tx, ty, dur, pills });
+        pending.push({ gen: wave.gen, sx, sy, tx, ty, pills });
       }
     }
     prevByPort = evByPort;
@@ -853,11 +848,11 @@ function launchBpduFlights(w, waves) {
 
   let finish = w.clock;
   for (const p of pending) {
-    const base = now + p.gen * hop;
-    const gap = Math.min(90, hop / (p.pills.length + 1));
+    const base = now + p.gen * FLIGHT_MS;
+    const gap = Math.min(90, FLIGHT_MS / (p.pills.length + 1));
     p.pills.forEach((pill, i) => {
       const start = base + i * gap;
-      finish = Math.max(finish, start + p.dur);
+      finish = Math.max(finish, start + FLIGHT_MS);
       w.flights.push({
         sx: p.sx,
         sy: p.sy,
@@ -866,7 +861,6 @@ function launchBpduFlights(w, waves) {
         color: BPDU_COLOR[pill.type],
         tc: !!pill.tc,
         start,
-        dur: p.dur,
       });
     });
   }
@@ -888,7 +882,7 @@ function drawPills(w) {
 
   for (const f of w.flights) {
     if (w.clock < f.start) continue; // not launched yet
-    const p = (w.clock - f.start) / f.dur;
+    const p = (w.clock - f.start) / FLIGHT_MS;
     const x = f.sx + (f.tx - f.sx) * p;
     const y = f.sy + (f.ty - f.sy) * p;
     const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
