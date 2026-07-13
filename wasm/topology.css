@@ -92,6 +92,11 @@
         font-style: normal;
         animation: mstp-flip 2.4s ease-in-out infinite;
     }
+    /* A step is a single click, so its effect on the clock is easy to miss. */
+    .mstp-bump {
+        border-radius: 4px;
+        animation: mstp-bump 1s ease-out;
+    }
 
     .mstp-slow {
         display: inline-flex;
@@ -307,8 +312,21 @@
     }
 }
 
+@keyframes mstp-bump {
+    0%,
+    35% {
+        background: var(--accent-fill-hover);
+        box-shadow: 0 0 0 3px var(--accent-fill-hover);
+    }
+    100% {
+        background: transparent;
+        box-shadow: 0 0 0 3px transparent;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .mstp-wait {
+    .mstp-wait,
+    .mstp-bump {
         animation: none;
     }
 }

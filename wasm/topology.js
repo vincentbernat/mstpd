@@ -284,14 +284,14 @@ async function mount(el) {
   const discardBtn = h("button", { class: "mstp-btn", text: "Discard" });
   runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
-  const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
-  const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
+  const clockTime = h("span", { text: "t=0s" });
+  const clockBpdu = h("span", { text: "0 BPDUs" });
   const clockConv = h("span", { class: "mstp-clock-c" });
   const clock = h(
     "span",
     { class: "mstp-clock" },
-    clockTime,
-    clockBpdu,
+    h("span", { class: "mstp-clock-t" }, clockTime),
+    h("span", { class: "mstp-clock-b" }, clockBpdu),
     clockConv,
   );
   const slowBox = document.createElement("input");
@@ -1040,9 +1040,21 @@ function stateLabel(w, state) {
 
 // -- rendering ------------------------------------------------------
 
+// Update a clock field, flashing it when its value changes. Only while the
+// widget is not running: a flash every second would be a strobe, and it is the
+// single click of a step that is easy to miss.
+function setClockField(w, el, text) {
+  if (el.textContent === text) return;
+  el.textContent = text;
+  if (w.running) return;
+  el.classList.remove("mstp-bump");
+  void el.offsetWidth; // let the browser catch up, so the flash starts again
+  el.classList.add("mstp-bump");
+}
+
 function renderClock(w) {
-  w.clockTime.textContent = `t=${w.time}s`;
-  w.clockBpdu.textContent = `${w.bpdus} BPDUs`;
+  setClockField(w, w.clockTime, `t=${w.time}s`);
+  setClockField(w, w.clockBpdu, `${w.bpdus} BPDUs`);
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
   else if (!w.bpdus)
