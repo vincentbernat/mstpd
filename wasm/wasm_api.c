@@ -274,7 +274,9 @@ typedef struct
 {
     port_t *prt;     /* NULL marks a free slot */
     int brh;         /* owning bridge handle */
-    int peer;        /* linked peer port handle, or -1 */
+    int peer;        /* port at the other end of the cable, or -1 */
+    bool admin_up;   /* enabled by the caller */
+    bool mute;       /* transmitter is dead: a one-way fault */
 } port_slot_t;
 
 /* A NULL pointer marks a free slot in either table. */
@@ -370,6 +372,69 @@ static void frame_purge_dst(int dst)
 
 /* Safety cap: convergence of a sane topology empties the queue quickly. */
 #define MSTPW_DELIVER_CAP 2000000UL
+
+/* Carrier */
+
+/* A port is really up once it is enabled and, when a cable is plugged in, the
+ * far end is enabled too. A port with no cable stays up, since it may well have
+ * a host on it and nobody to talk STP to. */
+static bool port_carrier(int porth)
+{
+    const port_slot_t *p = &g_ports[porth];
+    if(!p->admin_up)
+        return false;
+    if(!port_handle_ok(p->peer))
+        return true;
+    return g_ports[p->peer].admin_up;
+}
+
+/* Bring the two ends of a cable up or down together. Both carriers are set
+ * before either bridge's state machines run: a port sends a BPDU as soon as it
+ * comes up, and that frame would be dropped were its peer not up yet. Pass -1 as
+ * the second port to refresh a single one. */
+static void sync_carrier(int a, int b)
+{
+    const int ports[2] = {a, b};
+    bool changed[2] = {false, false};
+
+    for(int i = 0; i < 2; ++i)
+    {
+        if(!port_handle_ok(ports[i]))
+            continue;
+        port_t *prt = g_ports[ports[i]].prt;
+        bool up = port_carrier(ports[i]);
+        changed[i] = up != prt->sysdeps.up;
+        prt->sysdeps.up = up;
+        /* Whatever was on its way to a port that just went down is lost with the
+         * cable. */
+        if(changed[i] && !up)
+            frame_purge_dst(ports[i]);
+    }
+    for(int i = 0; i < 2; ++i)
+    {
+        if(!changed[i])
+            continue;
+        port_t *prt = g_ports[ports[i]].prt;
+        MSTP_IN_set_port_enable(prt, prt->sysdeps.up, prt->sysdeps.speed,
+                                prt->sysdeps.duplex);
+    }
+}
+
+/* Pull the cable out of both ends and return the port this one was plugged into,
+ * or -1. The carriers are left to the caller to sync, so that a port getting a
+ * new cable can be brought up once, with the cable in place. */
+static int unplug(int porth)
+{
+    int peer = g_ports[porth].peer;
+    g_ports[porth].peer = -1;
+    g_ports[porth].mute = false;
+    if(port_handle_ok(peer))
+    {
+        g_ports[peer].peer = -1;
+        g_ports[peer].mute = false;
+    }
+    return peer;
+}
 
 /* Helpers */
 
@@ -679,20 +744,22 @@ void MSTP_OUT_tx_bpdu(port_t *prt, bpdu_t *bpdu, int size)
 
     if(!port_handle_ok(porth))
         return;
+    if(g_ports[porth].mute)
+        return; /* one-way fault: this end cannot transmit */
     int peer = g_ports[porth].peer;
-    if(peer < 0 || !port_handle_ok(peer))
-        return; /* unconnected link: frame is lost */
-    if(!g_ports[peer].prt->sysdeps.up)
-        return;
+    if(!port_handle_ok(peer))
+        return; /* nothing plugged in: frame is lost */
 
     frame_enqueue(peer, bpdu, size);
 }
 
 void MSTP_OUT_shutdown_port(port_t *prt)
 {
-    /* BPDU-guard / errdisable: take the port administratively down. */
-    prt->sysdeps.up = false;
-    MSTP_IN_set_port_enable(prt, false, 0, 0);
+    /* BPDU-guard / errdisable: take the port administratively down, which drops
+     * the carrier at the other end of the cable too. */
+    int porth = prt->sysdeps.if_index;
+    g_ports[porth].admin_up = false;
+    sync_carrier(porth, g_ports[porth].peer);
 }
 
 /* log.h */
@@ -788,13 +855,13 @@ API int mstpw_bridge_delete(int brh)
     {
         if(g_ports[i].prt && g_ports[i].brh == brh)
         {
-            if(g_ports[i].peer >= 0 && port_handle_ok(g_ports[i].peer))
-                g_ports[g_ports[i].peer].peer = -1;
+            int peer = unplug(i);
             MSTP_IN_delete_port(g_ports[i].prt);
             free(g_ports[i].prt);
             g_ports[i].prt = NULL;
-            g_ports[i].peer = -1;
+            g_ports[i].admin_up = false;
             frame_purge_dst(i);
+            sync_carrier(peer, -1);
         }
     }
 
@@ -847,6 +914,8 @@ API int mstpw_port_create(int brh, const char *name, const char *mac,
     g_ports[porth].prt = prt;
     g_ports[porth].brh = brh;
     g_ports[porth].peer = -1;
+    g_ports[porth].admin_up = false;
+    g_ports[porth].mute = false;
     return porth;
 }
 
@@ -860,8 +929,8 @@ API int mstpw_port_set_enable(int porth, int up, int speed, int duplex)
         prt->sysdeps.speed = speed > 0 ? speed : prt->sysdeps.speed;
         prt->sysdeps.duplex = duplex ? 1 : 0;
     }
-    prt->sysdeps.up = !!up;
-    MSTP_IN_set_port_enable(prt, !!up, prt->sysdeps.speed, prt->sysdeps.duplex);
+    g_ports[porth].admin_up = !!up;
+    sync_carrier(porth, g_ports[porth].peer);
     return 0;
 }
 
@@ -869,12 +938,12 @@ API int mstpw_port_delete(int porth)
 {
     if(!port_handle_ok(porth))
         return -1;
-    if(g_ports[porth].peer >= 0 && port_handle_ok(g_ports[porth].peer))
-        g_ports[g_ports[porth].peer].peer = -1;
+    int peer = unplug(porth);
     MSTP_IN_delete_port(g_ports[porth].prt);
     free(g_ports[porth].prt);
     g_ports[porth].prt = NULL;
-    g_ports[porth].peer = -1;
+    g_ports[porth].admin_up = false;
+    sync_carrier(peer, -1);
     return 0;
 }
 
@@ -884,27 +953,25 @@ API int mstpw_link(int a, int b)
 {
     if(!port_handle_ok(a) || !port_handle_ok(b) || a == b)
         return -1;
-    if(g_ports[a].peer >= 0 && port_handle_ok(g_ports[a].peer))
-        g_ports[g_ports[a].peer].peer = -1;
-    if(g_ports[b].peer >= 0 && port_handle_ok(g_ports[b].peer))
-        g_ports[g_ports[b].peer].peer = -1;
+    sync_carrier(unplug(a), unplug(b)); /* whatever a and b were plugged into */
     g_ports[a].peer = b;
     g_ports[b].peer = a;
+    sync_carrier(a, b);
     return 0;
 }
 
 /* A unidirectional link: BPDUs flow from->to only (a one-way fibre failure).
- * `to` is left unable to transmit back, so `from` never hears it. */
+ * The cable is whole, so both ends keep their carrier and `to` still receives.
+ * Its transmitter is what is dead, so `from` never hears it. */
 API int mstpw_link_oneway(int from, int to)
 {
     if(!port_handle_ok(from) || !port_handle_ok(to) || from == to)
         return -1;
-    if(g_ports[from].peer >= 0 && port_handle_ok(g_ports[from].peer))
-        g_ports[g_ports[from].peer].peer = -1;
-    if(g_ports[to].peer >= 0 && port_handle_ok(g_ports[to].peer))
-        g_ports[g_ports[to].peer].peer = -1;
+    sync_carrier(unplug(from), unplug(to));
     g_ports[from].peer = to;
-    g_ports[to].peer = -1;
+    g_ports[to].peer = from;
+    g_ports[to].mute = true;
+    sync_carrier(from, to);
     return 0;
 }
 
@@ -912,10 +979,7 @@ API int mstpw_unlink(int porth)
 {
     if(!port_handle_ok(porth))
         return -1;
-    int peer = g_ports[porth].peer;
-    if(peer >= 0 && port_handle_ok(peer))
-        g_ports[peer].peer = -1;
-    g_ports[porth].peer = -1;
+    sync_carrier(porth, unplug(porth));
     return 0;
 }
 

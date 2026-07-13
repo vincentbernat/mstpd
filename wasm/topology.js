@@ -617,15 +617,17 @@ function build(w) {
         cost: ld.cost,
         ...ld.bOpts,
       });
-      pa.enable();
-      pb.enable();
       if (ld.oneway) {
         // A one-way fault cannot be toggled.
         mstp.linkOneWay(pa, pb);
         link = { broken: false, toggle() {}, break() {}, restore() {} };
       } else {
         link = mstp.link(pa, pb);
-        if (ld.down) link.break();
+      }
+      if (ld.down) link.break();
+      else {
+        pa.enable();
+        pb.enable();
       }
       a.ports.push(pa);
       b.ports.push(pb);
@@ -839,9 +841,8 @@ function emitWave(w, gen) {
   // topology change. The baseline carries over from the previous wave, so a
   // bridge that spoke up on its own, without a BPDU or a tick to prompt it,
   // still gets its pills.
-  const snap = snapshot(w);
   const before = w.txBase;
-  w.txBase = capturePortTx(snap);
+  w.txBase = capturePortTx(snapshot(w));
   const sent = new Map();
   for (const [handle, ps] of w.txBase) {
     const b = before.get(handle) || { tx: 0, tcn: 0 };
@@ -852,12 +853,6 @@ function emitWave(w, gen) {
   const now = w.clock;
   for (const e of w.links) {
     if (!e.geom) continue;
-    // A down link drops whatever its ports handed over, so nothing flies on it.
-    if (
-      isDown(snap.ports.get(e.aPort?.handle)) ||
-      isDown(snap.ports.get(e.bPort?.handle))
-    )
-      continue;
     const { x1, y1, x2, y2 } = e.geom;
     // Each endpoint that transmitted sends its pills to its peer.
     for (const [port, peer, sx, sy, ex, ey] of [

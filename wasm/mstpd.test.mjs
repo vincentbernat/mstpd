@@ -207,11 +207,14 @@ test("delivering a second's BPDUs one generation at a time matches step()", asyn
   const pa = a.addPort("a1", { portno: 1 });
   const pb = b.addPort("b1", { portno: 1 });
   eng.link(pa, pb);
-  for (const o of [a, b, pa, pb]) o.enable();
 
   const genOf = {};
   let events = [];
+  // A port sends its first BPDU as soon as it comes up, so watch from before it
+  // is enabled.
   eng.onEvent((e) => events.push(e));
+  for (const o of [a, b, pa, pb]) o.enable();
+
   for (let s = 0; s < CONVERGE; s++) {
     let gen = 0;
     const record = () => {
@@ -333,6 +336,47 @@ test("an unlinked, enabled port becomes designated/forwarding", async () => {
 
   assert.equal(p.role(), "Designated");
   assert.equal(p.state(), "forwarding");
+});
+
+test("a port only gets a carrier once both ends of its cable are up", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  const link = mstp.link(pa, pb);
+  a.enable();
+  b.enable();
+
+  pa.enable();
+  assert.equal(pa.status().up, false, "the other end of the cable is down");
+  assert.equal(pb.status().up, false, "and it has not been enabled yet");
+
+  pb.enable();
+  assert.equal(pa.status().up, true, "both ends are enabled, so both are up");
+  assert.equal(pb.status().up, true);
+
+  // Coming up together is what keeps the BPDU a port sends as it comes up: were
+  // its peer still down, the frame would have nowhere to go.
+  assert.equal(
+    mstp.deliverBPDUs(),
+    2,
+    "each end's first BPDU reached the other",
+  );
+
+  // Cutting the cable takes both ends with it, and so does replugging it.
+  link.break();
+  assert.equal(pa.status().up, false);
+  assert.equal(pb.status().up, false);
+  link.restore();
+  assert.equal(pa.status().up, true);
+  assert.equal(pb.status().up, true);
+  assert.equal(mstp.deliverBPDUs(), 2, "and again once the cable is back");
+
+  // Nothing to wait for when there is no cable at all.
+  const lonely = a.addPort("a2", { portno: 2 });
+  lonely.enable();
+  assert.equal(lonely.status().up, true, "an unlinked port needs no peer");
 });
 
 test("onEvent returns the RSTP states", async () => {
