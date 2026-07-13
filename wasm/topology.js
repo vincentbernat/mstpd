@@ -380,7 +380,7 @@ async function mount(el) {
     actionAt: 0,
     changeAt: 0,
     settledAt: null,
-    bpdus: 0, // BPDUs put on the wire since the build
+    bpdus: 0, // BPDUs that have set off since the build
     running: false, // the Start/Stop state
     stepping: false, // a single step is playing, and the loop stops at its end
     raf: null, // animation-loop handle
@@ -754,6 +754,18 @@ function redrawState(w) {
   renderPanel(w);
 }
 
+// A BPDU is counted as its pill sets off, not when it is put on the wire: a wave
+// is handed over at the end of a step and only leaves on the next one, and a
+// number climbing while nothing moves is a puzzle.
+function countLaunched(w, from) {
+  const n = w.flights.filter(
+    (f) => f.start >= from && f.start < w.clock,
+  ).length;
+  if (!n) return;
+  w.bpdus += n;
+  renderClock(w);
+}
+
 // The animation loop. One requestAnimationFrame runs the whole time we play.
 // Each frame it moves the clock on, does any due redraw or step, and draws the
 // pills. It reads the speed each frame, so the snail also affects pills already
@@ -761,9 +773,11 @@ function redrawState(w) {
 function animate(w, now) {
   const dt = now - w.last;
   w.last = now;
+  const from = w.clock;
   // Slower (by speed) while pills fly, real time when idle.
   w.clock += dt / (w.flights.length ? w.speed : 1);
 
+  countLaunched(w, from);
   w.flights = w.flights.filter((f) => w.clock < f.start + FLIGHT_MS);
 
   if (w.wave) {
@@ -949,7 +963,6 @@ function emitWave(w, gen) {
           start: now + i * gap,
         });
       });
-      w.bpdus += pills.length;
     }
   }
 
