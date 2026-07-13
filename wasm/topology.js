@@ -633,6 +633,7 @@ function build(w) {
       link,
       cost: ld.cost,
       oneway: ld.oneway,
+      pending: false, // cut or restored, but the replay has not shown it yet
     });
   }
 
@@ -640,7 +641,7 @@ function build(w) {
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
   w.frameBase = mstp?.topology().frames_delivered;
-  w.view = snapshot(w);
+  syncView(w);
   markAction(w);
   showErrors(w);
   render(w);
@@ -727,7 +728,7 @@ function stepTick(w) {
   const finish = launchBpduFlights(w, waves, states);
   // Nothing to replay: whatever the timers did shows at once.
   if (!w.flights.length) {
-    w.view = snapshot(w);
+    syncView(w);
     redrawState(w);
   }
   w.nextAt = Math.max(w.clock + 1000, finish + 150);
@@ -758,7 +759,7 @@ function animate(w, now) {
   while (w.replay.length && w.clock >= w.replay[0].at)
     arrived = w.replay.shift().snap;
   if (flying && !w.flights.length) {
-    w.view = snapshot(w); // the last pill landed: catch up with the core
+    syncView(w); // the last pill landed: catch up with the core
     redrawState(w);
   } else if (arrived) {
     w.view = arrived;
@@ -788,7 +789,7 @@ function setRunning(w, on) {
     // Pausing mid-flight: drop the pills and show the settled diagram.
     w.flights = [];
     w.replay = [];
-    w.view = snapshot(w);
+    syncView(w);
     w.svg.querySelector(".mstp-pills")?.remove();
     render(w);
     renderPanel(w);
@@ -961,6 +962,13 @@ function snapshot(w) {
   return { topo, bridges, ports };
 }
 
+// Draw the core as it stands: the replay is over, so a cut or a restore waiting
+// for it is now on show.
+function syncView(w) {
+  w.view = snapshot(w);
+  for (const e of w.links) e.pending = false;
+}
+
 // A down port keeps BR_STATE_BLOCKING but reports role "Disabled", so it lands
 // on the discarding colour like any other blocked port.
 const isDown = (ps) => !!ps && ps.role === "Disabled";
@@ -1092,14 +1100,21 @@ function render(w) {
       gEdges,
     );
 
-    if (down) {
+    // A dashed cross means the link was just cut, or just restored, and the
+    // replay has yet to catch up: the cross is on its way in, or on its way out.
+    if (down || e.pending) {
       const mx = (x1 + x2) / 2;
       const my = (y1 + y2) / 2;
       const s = 7;
+      // pathLength rescales the dashes to the arm, so "1 6" always fits four
+      // dots ending flush with the tip. In pixels the pattern would be cut off
+      // wherever the arm happened to end.
       const cross = {
         stroke: "#e55",
         "stroke-width": 3,
         "stroke-linecap": "round",
+        pathLength: 22,
+        "stroke-dasharray": e.pending ? "1 6" : "",
         "pointer-events": "none",
       };
       svgEl(
@@ -1315,9 +1330,14 @@ function select(w, sel) {
   renderPanel(w);
 }
 
+// The core cuts or restores the link right away, but the diagram is still
+// replaying the second the core has already run. Rather than jump ahead, mark
+// the link and let the replay reach it.
 function toggleLink(w, e) {
+  if (e.oneway) return; // a one-way fault cannot be toggled
   e.link.toggle();
-  w.view = snapshot(w); // the ports the link touches change right away
+  if (w.flights.length) e.pending = true;
+  else syncView(w);
   markAction(w);
   select(w, { type: "link", ref: e });
 }
