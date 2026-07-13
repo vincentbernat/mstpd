@@ -376,6 +376,7 @@ async function mount(el) {
     flights: [], // pills flying along the links
     wave: null, // the BPDUs on the wire, and when the last of them lands
     previousEvents: null, // the previous wave's events, to match agreements to proposals
+    txBase: new Map(), // transmit counters as of the last wave
   };
 
   applyViewBox(w);
@@ -564,6 +565,10 @@ function build(w) {
   w.flights = [];
   w.wave = null;
   w.previousEvents = null;
+  // The ports are about to be created and enabled, and they speak up as soon as
+  // they do. An empty baseline lets the first wave carry those BPDUs.
+  w.txBase = new Map();
+  w.eventBuf = [];
   w.svg.querySelector(".mstp-pills")?.remove();
 
   const byName = new Map();
@@ -692,13 +697,11 @@ let activeWidget = null;
 function stepTick(w) {
   if (!w.mstp) return;
   w.time += 1;
-  w.eventBuf = [];
   w.previousEvents = null;
   w.nextAt = w.clock + 1000;
 
-  const before = capturePortTx(snapshot(w));
   w.mstp.oneSecond();
-  emitWave(w, before, 0);
+  emitWave(w, 0);
   if (!w.wave) endTick(w); // a quiet second: no BPDU to wait for
   redrawState(w);
 }
@@ -707,9 +710,10 @@ function stepTick(w) {
 // answer with on its way.
 function deliverWave(w) {
   const gen = w.wave.gen + 1;
-  const before = capturePortTx(snapshot(w));
+  w.previousEvents = w.wave.events;
+  w.wave = null;
   w.mstp.deliverBPDUs();
-  emitWave(w, before, gen);
+  emitWave(w, gen);
   if (gen >= MAX_WAVES) w.wave = null;
   if (!w.wave) endTick(w);
   redrawState(w);
@@ -768,6 +772,9 @@ function setRunning(w, on) {
     if (w.wave) {
       w.mstp.deliverBPDUs(true);
       w.wave = null;
+      w.previousEvents = null;
+      w.eventBuf = [];
+      w.txBase = capturePortTx(snapshot(w)); // all delivered, nothing to show
       endTick(w);
     }
     w.flights = [];
@@ -819,28 +826,38 @@ function tallyEvents(events) {
 
 const NO_EV = { prop: 0, agree: 0 };
 
-// Send the BPDUs the bridges have just transmitted on their way, as one pill
-// per frame. Every pill takes FLIGHT_MS to cross its link. The pills mirror the
-// frames the core has queued, so once they have all landed the wave can be
-// delivered. Stores the wave on the widget, or null when the bridges had
+// Send the BPDUs the bridges have transmitted since the last wave on their way,
+// as one pill per frame. Every pill takes FLIGHT_MS to cross its link. The pills
+// mirror the frames the core has queued, so once they have all landed the wave
+// can be delivered. Stores the wave on the widget, or null when the bridges had
 // nothing to say.
-function emitWave(w, before, gen) {
+function emitWave(w, gen) {
   const events = tallyEvents(w.eventBuf);
   w.eventBuf = [];
 
   // What each port put on the wire, and how many of those frames carried a
-  // topology change.
+  // topology change. The baseline carries over from the previous wave, so a
+  // bridge that spoke up on its own, without a BPDU or a tick to prompt it,
+  // still gets its pills.
+  const snap = snapshot(w);
+  const before = w.txBase;
+  w.txBase = capturePortTx(snap);
   const sent = new Map();
-  for (const [handle, ps] of capturePortTx(snapshot(w))) {
+  for (const [handle, ps] of w.txBase) {
     const b = before.get(handle) || { tx: 0, tcn: 0 };
     const n = ps.tx - b.tx;
     if (n > 0) sent.set(handle, { n, tc: Math.max(0, ps.tcn - b.tcn) });
   }
 
   const now = w.clock;
-  let landAt = 0;
   for (const e of w.links) {
     if (!e.geom) continue;
+    // A down link drops whatever its ports handed over, so nothing flies on it.
+    if (
+      isDown(snap.ports.get(e.aPort?.handle)) ||
+      isDown(snap.ports.get(e.bPort?.handle))
+    )
+      continue;
     const { x1, y1, x2, y2 } = e.geom;
     // Each endpoint that transmitted sends its pills to its peer.
     for (const [port, peer, sx, sy, ex, ey] of [
@@ -865,8 +882,6 @@ function emitWave(w, before, gen) {
       // be told apart.
       const gap = Math.min(90, FLIGHT_MS / (pills.length + 1));
       pills.forEach((pill, i) => {
-        const start = now + i * gap;
-        landAt = Math.max(landAt, start + FLIGHT_MS);
         w.flights.push({
           link: e,
           sx,
@@ -875,18 +890,32 @@ function emitWave(w, before, gen) {
           ty: ey,
           color: BPDU_COLOR[pill.type],
           tc: !!pill.tc,
-          start,
+          start: now + i * gap,
         });
       });
     }
   }
 
+  // A cut or a restore puts its BPDUs on a wire that may still be carrying the
+  // previous ones. The core has them all in one queue, so they make up a single
+  // wave, landing when the last of them arrives.
+  const landAt = w.flights.reduce(
+    (m, f) => Math.max(m, f.start + FLIGHT_MS),
+    0,
+  );
   if (!landAt) {
     w.wave = null;
     return;
   }
-  w.previousEvents = events;
-  w.wave = { gen, landAt };
+  if (w.wave)
+    for (const [handle, ev] of w.wave.events) {
+      const g = events.get(handle) || NO_EV;
+      events.set(handle, {
+        prop: g.prop + ev.prop,
+        agree: g.agree + ev.agree,
+      });
+    }
+  w.wave = { gen, landAt, events };
 }
 
 // Draw each flying pill at its spot for the current clock. The pill layer goes
@@ -960,7 +989,8 @@ function renderClock(w, snap = snapshot(w)) {
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
-  else if (w.time <= w.actionAt) w.clockConv.replaceChildren();
+  else if (!w.time)
+    w.clockConv.replaceChildren(); // nothing has run yet
   else if (!w.clockConv.firstElementChild)
     w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
 }
@@ -1291,19 +1321,14 @@ function select(w, sel) {
 }
 
 // Cutting a link takes down whatever is on it: the core drops the frames it had
-// queued there, so their pills go too, and the wave is over as soon as the pills
-// still flying elsewhere have landed.
+// queued there, so their pills go too. The bridges react at once, without
+// waiting for the next second, so put the BPDUs they answer with on the wire
+// now: that is where reconvergence starts.
 function toggleLink(w, e) {
   if (e.oneway) return; // a one-way fault cannot be toggled
   e.link.toggle();
   w.flights = w.flights.filter((f) => f.link !== e);
-  if (w.wave) {
-    const last = w.flights.reduce(
-      (m, f) => Math.max(m, f.start + FLIGHT_MS),
-      0,
-    );
-    w.wave.landAt = Math.min(w.wave.landAt, Math.max(w.clock, last));
-  }
+  emitWave(w, w.wave ? w.wave.gen : 0);
   markAction(w);
   select(w, { type: "link", ref: e });
 }
