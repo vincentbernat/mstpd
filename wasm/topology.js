@@ -984,7 +984,7 @@ function renderClock(w, snap = snapshot(w)) {
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
-  else if (!w.time)
+  else if (!bpdus)
     w.clockConv.replaceChildren(); // nothing has run yet
   else if (!w.clockConv.firstElementChild)
     w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
