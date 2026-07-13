@@ -148,6 +148,7 @@ class Mstpd {
       unlink: c("mstpw_unlink", "number", ["number"]),
       oneSecond: c("mstpw_one_second", null, []),
       deliverBPDUs: c("mstpw_deliver_bpdus", "number", ["number"]),
+      queuedJson: c("mstpw_queued_json", "number", ["number"]),
       step: c("mstpw_step", null, ["number"]),
       setForceProtocolVersion: c("mstpw_set_force_protocol_version", "number", [
         "number",
@@ -318,6 +319,14 @@ class Mstpd {
     const n = this._.deliverBPDUs(all ? 1 : 0);
     this.#drainEvents();
     return n;
+  }
+
+  // The BPDUs on the wire: what the next deliverBPDUs() will hand over. Each is
+  // {seq, src, dst, proposal, agreement, tc}, with src and dst port handles.
+  // seq only ever grows, so pass the highest one already seen to get just the
+  // frames sent since.
+  queuedBPDUs(since = 0) {
+    return JSON.parse(takeString(this.m, this._.queuedJson(since)));
   }
 
   step(seconds = 1) {

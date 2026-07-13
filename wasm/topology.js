@@ -37,6 +37,7 @@ const PAD = R + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
 const FLIGHT_MS = 800; // how long a BPDU takes to cross a link
+const PILL_GAP = 90; // how far apart BPDUs leaving the same port at once set off
 const MAX_WAVES = 50; // give up on a cascade that never settles
 const QUIET_TIME = 4; // seconds without a port change before we call it converged
 
@@ -388,11 +389,9 @@ async function mount(el) {
     last: 0, // timestamp of the previous frame
     nextAt: 0, // clock time of the next step
     lastClick: { link: null, t: 0 }, // manual double-click detection
-    eventBuf: [], // proposal/agreement events from the core
     flights: [], // pills flying along the links
     wave: null, // the BPDUs on the wire, and when the last of them lands
-    previousEvents: null, // the previous wave's events, to match agreements to proposals
-    txBase: new Map(), // transmit counters as of the last wave
+    lastSeq: 0, // the newest BPDU already turned into a pill
   };
 
   applyViewBox(w);
@@ -421,7 +420,6 @@ async function mount(el) {
       print: () => {},
       printErr: () => {},
     });
-    w.mstp.onEvent((e) => w.eventBuf.push(e));
     build(w);
     select(w, null);
     w.runBtn.disabled = w.stepBtn.disabled = w.resetBtn.disabled = false;
@@ -588,8 +586,7 @@ function build(w) {
   w.selected = null;
   w.flights = [];
   w.wave = null;
-  w.previousEvents = null;
-  w.eventBuf = [];
+  w.lastSeq = 0;
   w.svg.querySelector(".mstp-pills")?.remove();
 
   const byName = new Map();
@@ -667,7 +664,6 @@ function build(w) {
   // Record every BPDU from now on so the panel can offer a pcap download. A
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
-  w.txBase = capturePortTx(snapshot(w));
   markAction(w);
   showErrors(w);
   render(w);
@@ -718,7 +714,6 @@ let activeWidget = null;
 function stepTick(w) {
   if (!w.mstp) return;
   w.time += 1;
-  w.previousEvents = null;
   w.nextAt = w.clock + 1000;
 
   w.mstp.oneSecond();
@@ -731,7 +726,6 @@ function stepTick(w) {
 // answer with on its way.
 function deliverWave(w) {
   const gen = w.wave.gen + 1;
-  w.previousEvents = w.wave.events;
   w.wave = null;
   w.mstp.deliverBPDUs();
   emitWave(w, gen);
@@ -849,9 +843,6 @@ function setRunning(w, on) {
     if (w.wave) {
       w.mstp.deliverBPDUs(true);
       w.wave = null;
-      w.previousEvents = null;
-      w.eventBuf = [];
-      w.txBase = capturePortTx(snapshot(w)); // all delivered, nothing to show
       endTick(w);
     }
     w.flights = [];
@@ -862,130 +853,65 @@ function setRunning(w, on) {
 }
 
 // -- BPDU animation -------------------------------------------------
-//
-// Every port's transmit counters, keyed by port handle.
-function capturePortTx(snap) {
+
+// The BPDU each frame carries. A topology change is not a type of its own: the
+// TC flag rides on whatever frame the port was already sending, so it is drawn
+// as a ring around the pill.
+const bpduType = (f) =>
+  f.proposal ? "proposal" : f.agreement ? "agreement" : "hello";
+
+// Which end of which link a port sits at, and where its pills fly to.
+function portGeometry(w) {
   const m = new Map();
-  for (const [handle, ps] of snap.ports)
-    m.set(handle, { tx: ps.tx_bpdu || 0, tcn: ps.tx_tcn || 0 });
-  return m;
-}
-
-// The core only tells us the totals (n sent, of which nTc carried a topology
-// change) plus how many proposals/agreements it emitted, so we bucket rather
-// than track each frame exactly. A topology change is not a BPDU of its own:
-// the TC flag is enabled on whatever frame the port is already sending, so it
-// is an overlay on the base type.
-function classifyBpdus(n, nProp, nAgree, nTc) {
-  const pills = [];
-  for (let i = 0; i < nProp && pills.length < n; i++)
-    pills.push({ type: "proposal" });
-  for (let i = 0; i < nAgree && pills.length < n; i++)
-    pills.push({ type: "agreement" });
-  while (pills.length < n) pills.push({ type: "hello" });
-  for (let i = 0; i < nTc && i < pills.length; i++)
-    pills[pills.length - 1 - i].tc = true;
-  return pills;
-}
-
-// Count the proposals/agreements each port emitted in one wave, keyed by handle.
-function tallyEvents(events) {
-  const m = new Map();
-  for (const e of events) {
-    if (e.event !== "proposal" && e.event !== "agreement") continue;
-    const g = m.get(e.port) || { prop: 0, agree: 0 };
-    if (e.event === "proposal") g.prop++;
-    else g.agree++;
-    m.set(e.port, g);
-  }
-  return m;
-}
-
-const NO_EV = { prop: 0, agree: 0 };
-
-// Send the BPDUs the bridges have transmitted since the last wave on their way,
-// as one pill per frame. Every pill takes FLIGHT_MS to cross its link. The pills
-// mirror the frames the core has queued, so once they have all landed the wave
-// can be delivered. Stores the wave on the widget, or null when the bridges had
-// nothing to say.
-function emitWave(w, gen) {
-  const events = tallyEvents(w.eventBuf);
-  w.eventBuf = [];
-
-  // What each port put on the wire, and how many of those frames carried a
-  // topology change. The baseline carries over from the previous wave, so a
-  // bridge that spoke up on its own, without a BPDU or a tick to prompt it,
-  // still gets its pills.
-  const before = w.txBase;
-  w.txBase = capturePortTx(snapshot(w));
-  const sent = new Map();
-  for (const [handle, ps] of w.txBase) {
-    const b = before.get(handle) || { tx: 0, tcn: 0 };
-    const n = ps.tx - b.tx;
-    if (n > 0) sent.set(handle, { n, tc: Math.max(0, ps.tcn - b.tcn) });
-  }
-
-  const now = w.clock;
   for (const e of w.links) {
     if (!e.geom) continue;
     const { x1, y1, x2, y2 } = e.geom;
-    // Each endpoint that transmitted sends its pills to its peer.
-    for (const [port, peer, sx, sy, ex, ey] of [
-      [e.aPort, e.bPort, x1, y1, x2, y2],
-      [e.bPort, e.aPort, x2, y2, x1, y1],
-    ]) {
-      if (!port) continue;
-      // Do not animate one way links.
-      if (e.oneway && port === e.bPort) continue;
-      const t = sent.get(port.handle);
-      if (!t) continue;
-      const ev = events.get(port.handle) || NO_EV;
-      // A real handshake agreement answers a proposal the peer sent one wave
-      // earlier (it took a delivery hop to arrive). Count only those as
-      // agreements, the rest are plain hellos.
-      const peerProposals =
-        (peer && w.previousEvents && w.previousEvents.get(peer.handle)?.prop) ||
-        0;
-      const nAgree = Math.min(ev.agree, peerProposals);
-      const pills = classifyBpdus(t.n, ev.prop, nAgree, t.tc);
-      // A port sending several BPDUs at once staggers them a little so they can
-      // be told apart.
-      const gap = Math.min(90, FLIGHT_MS / (pills.length + 1));
-      pills.forEach((pill, i) => {
-        w.flights.push({
-          link: e,
-          sx,
-          sy,
-          tx: ex,
-          ty: ey,
-          color: BPDU_COLOR[pill.type],
-          tc: !!pill.tc,
-          start: now + i * gap,
-        });
-      });
-    }
+    if (e.aPort)
+      m.set(e.aPort.handle, { link: e, sx: x1, sy: y1, tx: x2, ty: y2 });
+    if (e.bPort)
+      m.set(e.bPort.handle, { link: e, sx: x2, sy: y2, tx: x1, ty: y1 });
+  }
+  return m;
+}
+
+// Send the BPDUs the core has put on the wire since the last wave on their way,
+// one pill per frame. Every pill takes FLIGHT_MS to cross its link, so they all
+// land together and the wave can then be delivered. Stores the wave on the
+// widget, or null when the bridges had nothing to say.
+function emitWave(w, gen) {
+  const frames = w.mstp.queuedBPDUs(w.lastSeq);
+  const at = portGeometry(w);
+  const now = w.clock;
+  const nth = new Map(); // BPDUs a port is sending at once, to stagger them
+
+  for (const f of frames) {
+    w.lastSeq = Math.max(w.lastSeq, f.seq);
+    const g = at.get(f.src);
+    if (!g) continue;
+    // Several BPDUs leaving one port at once are spread out a little so they
+    // can be told apart.
+    const i = nth.get(f.src) || 0;
+    nth.set(f.src, i + 1);
+    w.flights.push({
+      link: g.link,
+      sx: g.sx,
+      sy: g.sy,
+      tx: g.tx,
+      ty: g.ty,
+      color: BPDU_COLOR[bpduType(f)],
+      tc: f.tc,
+      start: now + i * PILL_GAP,
+    });
   }
 
-  // A cut or a restore puts its BPDUs on a wire that may still be carrying the
-  // previous ones. The core has them all in one queue, so they make up a single
-  // wave, landing when the last of them arrives.
+  // A cut puts its BPDUs on a wire that may still be carrying the previous ones.
+  // The core holds them in one queue, so they make up a single wave, landing
+  // when the last of them arrives.
   const landAt = w.flights.reduce(
     (m, f) => Math.max(m, f.start + FLIGHT_MS),
     0,
   );
-  if (!landAt) {
-    w.wave = null;
-    return;
-  }
-  if (w.wave)
-    for (const [handle, ev] of w.wave.events) {
-      const g = events.get(handle) || NO_EV;
-      events.set(handle, {
-        prop: g.prop + ev.prop,
-        agree: g.agree + ev.agree,
-      });
-    }
-  w.wave = { gen, landAt, events };
+  w.wave = landAt ? { gen, landAt } : null;
 }
 
 // Draw each flying pill at its spot for the current clock. The pill layer goes

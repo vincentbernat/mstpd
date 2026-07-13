@@ -314,20 +314,25 @@ static int alloc_port_handle(void)
 typedef struct frame
 {
     struct frame *next;
-    int dst;     /* destination port handle */
-    int len;     /* BPDU length in bytes */
+    unsigned long seq;
+    int src;           /* source port handle */
+    int dst;           /* destination port handle */
+    int len;           /* BPDU length in bytes */
     unsigned char data[];
 } frame_t;
 
 static frame_t *g_q_head, *g_q_tail;
 static unsigned long g_frames_delivered;
+static unsigned long g_frame_seq;
 
-static void frame_enqueue(int dst, const void *data, int len)
+static void frame_enqueue(int src, int dst, const void *data, int len)
 {
     frame_t *f = malloc(sizeof(*f) + len);
     if(!f)
         return;
     f->next = NULL;
+    f->seq = ++g_frame_seq;
+    f->src = src;
     f->dst = dst;
     f->len = len;
     memcpy(f->data, data, len);
@@ -750,7 +755,7 @@ void MSTP_OUT_tx_bpdu(port_t *prt, bpdu_t *bpdu, int size)
     if(!port_handle_ok(peer))
         return; /* nothing plugged in: frame is lost */
 
-    frame_enqueue(peer, bpdu, size);
+    frame_enqueue(porth, peer, bpdu, size);
 }
 
 void MSTP_OUT_shutdown_port(port_t *prt)
@@ -1030,6 +1035,41 @@ API int mstpw_deliver_bpdus(int all)
         }
     } while(all && g_q_head);
     return delivered;
+}
+
+/* The BPDUs on the wire: what the next mstpw_deliver_bpdus() will hand over,
+ * each with the flags that say what it is. Frames after `since` only, so a
+ * caller that has already drawn the wave can pick up what a cut has just added
+ * to it without seeing the rest twice. Pass 0 for the whole queue. */
+API char *mstpw_queued_json(unsigned long since)
+{
+    sb_t s;
+    sb_init(&s);
+    sb_printf(&s, "[");
+    bool first_frame = true;
+    for(const frame_t *f = g_q_head; f; f = f->next)
+    {
+        if(f->seq <= since)
+            continue;
+        const bpdu_t *b = (const bpdu_t *)f->data;
+        bool rst = (bpduTypeRST == b->bpduType);
+        bool tcn = (protoSTP == b->protocolVersion)
+                   && (bpduTypeTCN == b->bpduType);
+        bool first = true;
+        sb_printf(&s, "%s{", first_frame ? "" : ",");
+        first_frame = false;
+        sb_kv_uint(&s, &first, "seq", f->seq);
+        sb_kv_int(&s, &first, "src", f->src);
+        sb_kv_int(&s, &first, "dst", f->dst);
+        sb_kv_bool(&s, &first, "proposal",
+                   rst && (b->flags & (1 << offsetProposal)));
+        sb_kv_bool(&s, &first, "agreement",
+                   rst && (b->flags & (1 << offsetAgreement)));
+        sb_kv_bool(&s, &first, "tc", tcn || (b->flags & (1 << offsetTc)));
+        sb_printf(&s, "}");
+    }
+    sb_printf(&s, "]");
+    return s.buf;
 }
 
 /* Advance the whole simulation by `seconds`, delivering BPDUs after each tick. */

@@ -379,6 +379,66 @@ test("a port only gets a carrier once both ends of its cable are up", async () =
   assert.equal(lonely.status().up, true, "an unlinked port needs no peer");
 });
 
+test("queuedBPDUs describes the BPDUs waiting on the wire", async () => {
+  const mstp = await loadMstpd();
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  const link = mstp.link(pa, pb);
+
+  assert.deepEqual(mstp.queuedBPDUs(), [], "nothing on the wire yet");
+
+  // Both ends come up together, and each proposes: neither has heard of the
+  // other, so each believes it is the root.
+  for (const o of [a, b, pa, pb]) o.enable();
+  const first = mstp.queuedBPDUs();
+  assert.equal(first.length, 2, "one BPDU each way");
+  assert.deepEqual(
+    first.map((f) => [f.src, f.dst]).sort(),
+    [
+      [pa.handle, pb.handle],
+      [pb.handle, pa.handle],
+    ].sort(),
+    "each frame goes from its port to the far end of the cable",
+  );
+  assert.ok(
+    first.every((f) => f.proposal && !f.tc),
+    "both propose, and nothing has changed yet to report",
+  );
+
+  // seq only grows, so it tells the frames already seen from the newer ones.
+  const seqs = first.map((f) => f.seq).sort((x, y) => x - y);
+  assert.deepEqual(
+    mstp.queuedBPDUs(seqs[1]),
+    [],
+    "nothing has been sent since the newest one",
+  );
+  assert.deepEqual(
+    mstp.queuedBPDUs(seqs[0]).map((f) => f.seq),
+    [seqs[1]],
+    "only what came after the oldest one",
+  );
+
+  // Delivering leaves the queue holding what the delivery triggered, not what
+  // it delivered: b has heard a is the better root, and agrees.
+  assert.equal(mstp.deliverBPDUs(), 2);
+  const reply = mstp.queuedBPDUs();
+  assert.equal(reply.length, 1);
+  assert.equal(reply[0].src, pb.handle, "b answers a");
+  assert.ok(reply[0].agreement, "b agrees, so a need not wait to forward");
+  assert.ok(!reply[0].proposal, "b no longer claims the root");
+  assert.ok(reply[0].tc, "b's port moved, which is a topology change");
+  assert.ok(
+    reply[0].seq > seqs[1],
+    "an answer is newer than what it answers to",
+  );
+
+  // Cutting the cable throws away what was still on it.
+  link.break();
+  assert.deepEqual(mstp.queuedBPDUs(), [], "the wire is empty once cut");
+});
+
 test("onEvent returns the RSTP states", async () => {
   const mstp = await loadMstpd();
   const events = [];
