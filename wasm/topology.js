@@ -274,11 +274,15 @@ async function mount(el) {
     class: "mstp-btn mstp-toggle",
     html: "<span>Start</span><span>Stop</span>",
   });
+  const stepBtn = h("button", {
+    class: "mstp-btn",
+    text: "Step",
+  });
   const resetBtn = h("button", { class: "mstp-btn", text: "Reset" });
   const editBtn = h("button", { class: "mstp-btn", text: "Edit" });
   const saveBtn = h("button", { class: "mstp-btn mstp-accent", text: "Save" });
   const discardBtn = h("button", { class: "mstp-btn", text: "Discard" });
-  runBtn.disabled = resetBtn.disabled = true;
+  runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { class: "mstp-clock-t", text: "t=0s" });
   const clockBpdu = h("span", { class: "mstp-clock-b", text: "0 BPDUs" });
@@ -301,7 +305,16 @@ async function mount(el) {
     slowBox,
     h("span", { text: "🐌" }),
   );
-  bar.append(runBtn, resetBtn, editBtn, saveBtn, discardBtn, clock, slow);
+  bar.append(
+    runBtn,
+    stepBtn,
+    resetBtn,
+    editBtn,
+    saveBtn,
+    discardBtn,
+    clock,
+    slow,
+  );
 
   const stage = h("div", { class: "mstp-stage" });
   const svg = svgEl("svg", { preserveAspectRatio: "xMidYMid meet" });
@@ -341,6 +354,7 @@ async function mount(el) {
     textarea,
     errBox,
     runBtn,
+    stepBtn,
     resetBtn,
     editBtn,
     saveBtn,
@@ -367,6 +381,8 @@ async function mount(el) {
     changeAt: 0,
     settledAt: null,
     bpdus: 0, // BPDUs put on the wire since the build
+    running: false, // the Start/Stop state
+    stepping: false, // a single step is playing, and the loop stops at its end
     raf: null, // animation-loop handle
     clock: 0, // clock in ms (see animate)
     last: 0, // timestamp of the previous frame
@@ -386,7 +402,8 @@ async function mount(el) {
   svg.addEventListener("pointerdown", (ev) => {
     if (w.mstp && ev.target === svg) select(w, null);
   });
-  runBtn.onclick = () => setRunning(w, !w.raf);
+  runBtn.onclick = () => setRunning(w, !w.running);
+  stepBtn.onclick = () => stepOnce(w);
   resetBtn.onclick = () => {
     setRunning(w, false);
     build(w);
@@ -407,7 +424,7 @@ async function mount(el) {
     w.mstp.onEvent((e) => w.eventBuf.push(e));
     build(w);
     select(w, null);
-    w.runBtn.disabled = w.resetBtn.disabled = false;
+    w.runBtn.disabled = w.stepBtn.disabled = w.resetBtn.disabled = false;
   } catch (e) {
     panelBody.textContent = "Failed to load simulation: " + e;
     console.error(e);
@@ -520,7 +537,12 @@ function enterEdit(w) {
   w.editing = true;
   w.stage.hidden = w.legend.hidden = true;
   w.editor.hidden = false;
-  w.runBtn.hidden = w.resetBtn.hidden = w.editBtn.hidden = w.slow.hidden = true;
+  w.runBtn.hidden =
+    w.stepBtn.hidden =
+    w.resetBtn.hidden =
+    w.editBtn.hidden =
+    w.slow.hidden =
+      true;
   w.saveBtn.hidden = w.discardBtn.hidden = false;
   w.textarea.focus();
 }
@@ -530,6 +552,7 @@ function leaveEdit(w) {
   w.editor.hidden = true;
   w.stage.hidden = w.legend.hidden = false;
   w.runBtn.hidden =
+    w.stepBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
     w.slow.hidden =
@@ -744,25 +767,67 @@ function animate(w, now) {
   w.flights = w.flights.filter((f) => w.clock < f.start + FLIGHT_MS);
 
   if (w.wave) {
-    if (w.clock >= w.wave.landAt) deliverWave(w);
-  } else if (w.clock >= w.nextAt) stepTick(w); // start the next second
+    // A step ends once the BPDUs it was playing have been delivered.
+    if (w.clock >= w.wave.landAt) {
+      deliverWave(w);
+      if (w.stepping) return endStep(w);
+    }
+  } else if (w.clock >= w.nextAt) {
+    stepTick(w); // start the next second
+    // A second nobody had anything to say in is a step of its own.
+    if (w.stepping && !w.wave) return endStep(w);
+  }
 
   drawPills(w);
   w.raf = requestAnimationFrame((t) => animate(w, t));
 }
 
+function startLoop(w) {
+  if (activeWidget && activeWidget !== w) setRunning(activeWidget, false);
+  activeWidget = w;
+  w.last = performance.now();
+  w.raf = requestAnimationFrame((t) => animate(w, t));
+  w.stepBtn.disabled = true;
+}
+
+function stopLoop(w) {
+  cancelAnimationFrame(w.raf);
+  w.raf = null;
+  if (activeWidget === w) activeWidget = null;
+  w.stepBtn.disabled = !w.mstp;
+}
+
+// Play one step: send the BPDUs waiting on the wire across their links and
+// deliver them. With nothing to send, run the next second instead, and do not
+// sit through what is left of the current one.
+function stepOnce(w) {
+  if (!w.mstp || w.raf) return;
+  w.stepping = true;
+  if (!w.wave) w.nextAt = w.clock;
+  startLoop(w);
+}
+
+// The step is over. Whatever it has just put on the wire waits there for the
+// next one, so leave it alone.
+function endStep(w) {
+  w.stepping = false;
+  drawPills(w);
+  stopLoop(w);
+}
+
 function setRunning(w, on) {
-  if (on && !w.raf) {
-    if (activeWidget && activeWidget !== w) setRunning(activeWidget, false);
-    activeWidget = w;
-    w.last = performance.now();
-    w.nextAt = w.clock + 200;
-    w.raf = requestAnimationFrame((t) => animate(w, t));
+  if (on && !w.running) {
+    w.running = true;
+    w.stepping = false; // a step in flight simply carries on
+    if (!w.raf) {
+      w.nextAt = w.clock + 200;
+      startLoop(w);
+    }
     w.runBtn.classList.add("mstp-active");
-  } else if (!on && w.raf) {
-    cancelAnimationFrame(w.raf);
-    w.raf = null;
-    if (activeWidget === w) activeWidget = null;
+    w.stepBtn.disabled = true;
+  } else if (!on && (w.running || w.raf)) {
+    w.running = w.stepping = false;
+    stopLoop(w);
     w.runBtn.classList.remove("mstp-active");
 
     // Pausing with BPDUs still on the wire: deliver them, and everything they
