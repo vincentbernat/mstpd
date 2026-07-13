@@ -992,7 +992,7 @@ function renderClock(w) {
   w.clockTime.textContent = `t=${w.time}s`;
   w.clockBpdu.textContent = `${bpdus} BPDUs`;
   if (w.settledAt !== null)
-    w.clockConv.textContent = `🎯 ${w.settledAt - w.actionAt}s`;
+    w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
   else if (w.time <= w.actionAt) w.clockConv.replaceChildren();
   else if (!w.clockConv.firstElementChild)
     w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
