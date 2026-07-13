@@ -366,7 +366,7 @@ async function mount(el) {
     actionAt: 0,
     changeAt: 0,
     settledAt: null,
-    frameBase: 0,
+    bpdus: 0, // BPDUs put on the wire since the build
     raf: null, // animation-loop handle
     clock: 0, // clock in ms (see animate)
     last: 0, // timestamp of the previous frame
@@ -561,6 +561,7 @@ function build(w) {
   w.links = [];
   w.timerError = false;
   w.time = 0;
+  w.bpdus = 0;
   w.selected = null;
   w.flights = [];
   w.wave = null;
@@ -648,7 +649,6 @@ function build(w) {
   // Record every BPDU from now on so the panel can offer a pcap download. A
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
-  w.frameBase = mstp?.topology().frames_delivered;
   markAction(w);
   showErrors(w);
   render(w);
@@ -888,6 +888,7 @@ function emitWave(w, gen) {
           start: now + i * gap,
         });
       });
+      w.bpdus += pills.length;
     }
   }
 
@@ -978,14 +979,13 @@ function stateLabel(w, state) {
 
 // -- rendering ------------------------------------------------------
 
-function renderClock(w, snap = snapshot(w)) {
-  const bpdus = snap.topo ? snap.topo.frames_delivered - w.frameBase : 0;
+function renderClock(w) {
   w.clockTime.textContent = `t=${w.time}s`;
-  w.clockBpdu.textContent = `${bpdus} BPDUs`;
+  w.clockBpdu.textContent = `${w.bpdus} BPDUs`;
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
-  else if (!bpdus)
-    w.clockConv.replaceChildren(); // nothing has run yet
+  else if (!w.bpdus)
+    w.clockConv.replaceChildren(); // nothing has been sent yet
   else if (!w.clockConv.firstElementChild)
     w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
 }
@@ -993,7 +993,7 @@ function renderClock(w, snap = snapshot(w)) {
 function render(w) {
   const snap = snapshot(w);
   const live = !!w.mstp;
-  renderClock(w, snap);
+  renderClock(w);
   w.svg.replaceChildren();
 
   const defs = svgEl("defs", {}, w.svg);
