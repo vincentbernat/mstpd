@@ -566,9 +566,6 @@ function build(w) {
   w.flights = [];
   w.wave = null;
   w.previousEvents = null;
-  // The ports are about to be created and enabled, and they speak up as soon as
-  // they do. An empty baseline lets the first wave carry those BPDUs.
-  w.txBase = new Map();
   w.eventBuf = [];
   w.svg.querySelector(".mstp-pills")?.remove();
 
@@ -618,17 +615,15 @@ function build(w) {
         cost: ld.cost,
         ...ld.bOpts,
       });
+      pa.enable();
+      pb.enable();
       if (ld.oneway) {
         // A one-way fault cannot be toggled.
         mstp.linkOneWay(pa, pb);
         link = { broken: false, toggle() {}, break() {}, restore() {} };
       } else {
         link = mstp.link(pa, pb);
-      }
-      if (ld.down) link.break();
-      else {
-        pa.enable();
-        pb.enable();
+        if (ld.down) link.break();
       }
       a.ports.push(pa);
       b.ports.push(pb);
@@ -649,6 +644,7 @@ function build(w) {
   // Record every BPDU from now on so the panel can offer a pcap download. A
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
+  w.txBase = capturePortTx(snapshot(w));
   markAction(w);
   showErrors(w);
   render(w);
