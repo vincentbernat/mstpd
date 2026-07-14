@@ -36,6 +36,7 @@ const loadMSTPD = window.mstpd.loadMSTPD;
 const SVGNS = "http://www.w3.org/2000/svg";
 const UNIT = 110; // grid cell -> px
 const R = 24; // node radius in px
+const NO_STP_R = 16; // half the side of a bridge that runs no protocol
 const PAD = R + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
@@ -1079,13 +1080,21 @@ function render(w) {
     const ox = -uy * spread * orient;
     const oy = ux * spread * orient;
 
-    // A parallel link is offset perpendicular by `spread`, so it meets the
-    // circle nearer its edge: back off along the link to land on the border.
-    const along = Math.sqrt(Math.max(R * R - spread * spread, 0));
-    const x1 = e.a.x + ux * along + ox;
-    const y1 = e.a.y + uy * along + oy;
-    const x2 = e.b.x - ux * along + ox;
-    const y2 = e.b.y - uy * along + oy;
+    // How far from a node's centre the link starts: on the border of its
+    // circle, or of its box when it runs no protocol. A parallel link is pushed
+    // sideways by (ox, oy), so it leaves the shape at a different place.
+    const border = (n, dx, dy) => {
+      if (!noStp(n)) return Math.sqrt(Math.max(R * R - spread * spread, 0));
+      const tx = dx ? (Math.sign(dx) * NO_STP_R - ox) / dx : Infinity;
+      const ty = dy ? (Math.sign(dy) * NO_STP_R - oy) / dy : Infinity;
+      return Math.max(0, Math.min(tx, ty));
+    };
+    const fromA = border(e.a, ux, uy);
+    const fromB = border(e.b, -ux, -uy);
+    const x1 = e.a.x + ux * fromA + ox;
+    const y1 = e.a.y + uy * fromA + oy;
+    const x2 = e.b.x - ux * fromB + ox;
+    const y2 = e.b.y - uy * fromB + oy;
 
     e.geom = { x1, y1, x2, y2 };
 
@@ -1210,24 +1219,32 @@ function render(w) {
     const isRoot = b && b.is_root && !noStp(n);
     const g = svgEl("g", {}, gNodes);
     if (live) g.style.cursor = "pointer";
-    svgEl(
-      "circle",
-      {
-        cx: n.x,
-        cy: n.y,
-        r: R,
-        fill: isRoot ? "#2a73" : "#8882",
-        stroke: w.selected?.ref === n ? "#06f" : isRoot ? "#2a7" : "#888",
-        "stroke-width": w.selected?.ref === n ? 4 : 2,
-      },
-      g,
-    );
+    const shape = {
+      fill: isRoot ? "#2a73" : "#8882",
+      stroke: w.selected?.ref === n ? "#06f" : isRoot ? "#2a7" : "#888",
+      "stroke-width": w.selected?.ref === n ? 4 : 2,
+    };
+    // A bridge with no protocol is a box.
+    if (noStp(n))
+      svgEl(
+        "rect",
+        {
+          x: n.x - NO_STP_R,
+          y: n.y - NO_STP_R,
+          width: 2 * NO_STP_R,
+          height: 2 * NO_STP_R,
+          rx: 3,
+          ...shape,
+        },
+        g,
+      );
+    else svgEl("circle", { cx: n.x, cy: n.y, r: R, ...shape }, g);
     drawNodeGlyph(g, n);
     svgEl(
       "text",
       {
         x: n.x,
-        y: n.y - 1,
+        y: noStp(n) ? n.y + 4 : n.y - 1,
         "text-anchor": "middle",
         "font-weight": 600,
         "font-size": 13,
@@ -1245,7 +1262,7 @@ function render(w) {
       },
       g,
     ).textContent = noStp(n)
-      ? "no STP"
+      ? ""
       : isRoot
         ? "ROOT"
         : b
@@ -1271,7 +1288,7 @@ function drawNodeGlyph(parent, n) {
         y: n.y,
         "text-anchor": "middle",
         "dominant-baseline": "central",
-        "font-size": 30,
+        "font-size": noStp(n) ? (30 * NO_STP_R) / R : 30,
         opacity: 0.3,
         filter: "url(#mstp-gray)",
         "pointer-events": "none",
@@ -1280,6 +1297,8 @@ function drawNodeGlyph(parent, n) {
     ).textContent = n.icon;
     return;
   }
+  if (noStp(n)) return;
+  // Draw a switch symbol otherwise.
   const g = svgEl(
     "g",
     {
