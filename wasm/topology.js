@@ -11,17 +11,20 @@
 //
 // Grammar (one statement per line; # or // starts a comment):
 //
-//   NAME @X,Y [prio=N] [proto=stp|rstp|mstp] [icon=C]  # a bridge at grid cell X,Y
+//   NAME @X,Y [prio=N] [proto=stp|rstp|mstp|none] [icon=C]  # a bridge at grid cell X,Y
 //   A -- B [cost=N] [down] [A:flag ...]                # a link between two bridges
 //   A -> B [cost=N] [A:flag ...]                       # a one-way link (A transmits, B receives)
 //   # global options
-//   :protocol rstp|stp|mstp
+//   :protocol rstp|stp|mstp|none
 //   :forward-delay N
 //   :max-age N
 //   :max-hops N
 //   :tx-hold N
 //
 // Endpoint flags: edge, network, bpdu-guard, root-guard, no-p2p
+//
+// proto=none turns the spanning tree off on a bridge: it sends no BPDUs, drops
+// the ones it receives, and its ports have no role or state.
 //
 // The MSTPD core is loaded via its own <script> tag (above), which publishes
 // window.mstpd; this module picks loadMSTPD off it rather than importing. We
@@ -445,12 +448,13 @@ function applyViewBox(w) {
   w.svg.style.aspectRatio = `${vbW} / ${vbH}`;
 }
 
-// The protocols in play: what each bridge asks for, or the global default.
+// The protocols in play: what each bridge asks for, or the global default. A
+// bridge running no protocol at all is not one of them.
 function protocolsUsed(w) {
   const protos = new Set(
     w.model.nodes.map((n) => n.proto || w.model.directives.protocol),
   );
-  if (!protos.size) protos.add(w.model.directives.protocol);
+  protos.delete("none");
   return protos;
 }
 
@@ -593,15 +597,18 @@ function build(w) {
   const timers = timersOf(model.directives);
   for (const md of model.nodes) {
     const protocol = md.proto || model.directives.protocol;
+    const stp = protocol !== "none";
     let bridge = null;
     if (mstp) {
       bridge = mstp.createBridge(md.name, {
         priority: md.prio,
-        protocol,
+        protocol: stp ? protocol : undefined,
         configId: protocol === "mstp" ? { revision: 1, name: "r1" } : undefined,
       });
       if (bridge.setTimes(timers) < 0) w.timerError = true;
-      bridge.enable();
+      // A bridge is created with the protocol off, so leave it that way for
+      // proto=none: the ports still come up, but nothing drives them.
+      if (stp) bridge.enable();
     }
     const node = {
       name: md.name,
@@ -964,9 +971,21 @@ function snapshot(w) {
   return { topo, bridges, ports };
 }
 
-// A down port keeps BR_STATE_BLOCKING but reports role "Disabled", so it lands
-// on the discarding colour like any other blocked port.
-const isDown = (ps) => !!ps && ps.role === "Disabled";
+// A bridge with the spanning tree turned off. The core keeps it disabled: it
+// never transmits, and drops whatever it receives.
+const noStp = (n) => n.protocol === "none";
+
+// A port with no carrier: its cable is cut, or BPDU guard has shut it down.
+const isDown = (ps) => !!ps && !ps.up;
+
+// The role and state of a port whose bridge runs no protocol mean nothing, so
+// they are not shown.
+const shown = (node, ps) => (noStp(node) ? null : ps);
+
+// Does traffic cross this end of a link? Without a protocol nothing blocks the
+// port, so a live cable is enough.
+const forwards = (node, ps) =>
+  noStp(node) ? !!ps && ps.up : ps?.state === "forwarding";
 
 // The core reports RSTP/MSTP's discarding state as the kernel's "blocking"
 // (MSTPD maps it onto BR_STATE_BLOCKING). Show the RSTP name when appropriate.
@@ -1031,8 +1050,7 @@ function render(w) {
   for (const e of w.links) {
     const pa = snap.ports.get(e.aPort?.handle);
     const pb = snap.ports.get(e.bPort?.handle);
-    const active =
-      live && pa?.state === "forwarding" && pb?.state === "forwarding";
+    const active = live && forwards(e.a, pa) && forwards(e.b, pb);
     const down = live ? isDown(pa) || isDown(pb) : e.link.broken;
 
     const dx = e.b.x - e.a.x;
@@ -1170,13 +1188,14 @@ function render(w) {
       );
     }
 
-    drawEndpoint(gEdges, e.a, e.b, pa, ox, oy);
-    drawEndpoint(gEdges, e.b, e.a, pb, ox, oy);
+    // A port with no protocol has no role or state to show, so it gets no marker.
+    if (!noStp(e.a)) drawEndpoint(gEdges, e.a, e.b, pa, ox, oy);
+    if (!noStp(e.b)) drawEndpoint(gEdges, e.b, e.a, pb, ox, oy);
   }
 
   for (const n of w.nodes) {
     const b = snap.bridges.get(n.bridge?.handle);
-    const isRoot = b && b.is_root;
+    const isRoot = b && b.is_root && !noStp(n);
     const g = svgEl("g", {}, gNodes);
     if (live) g.style.cursor = "pointer";
     svgEl(
@@ -1213,7 +1232,13 @@ function render(w) {
         opacity: 0.7,
       },
       g,
-    ).textContent = isRoot ? "ROOT" : b ? `${b.root_path_cost}` : "";
+    ).textContent = noStp(n)
+      ? "no STP"
+      : isRoot
+        ? "ROOT"
+        : b
+          ? `${b.root_path_cost}`
+          : "";
     if (live)
       g.addEventListener("pointerdown", (ev) => {
         ev.stopPropagation();
@@ -1377,8 +1402,8 @@ function renderPanel(w) {
 
   if (w.selected.type === "link") {
     const e = w.selected.ref;
-    const pa = snap.ports.get(e.aPort.handle);
-    const pb = snap.ports.get(e.bPort.handle);
+    const pa = shown(e.a, snap.ports.get(e.aPort.handle));
+    const pb = shown(e.b, snap.ports.get(e.bPort.handle));
     const broken = e.link.broken;
     const head = h("h3", {
       text: `Link ${e.a.name} ${e.oneway ? "→" : "–"} ${e.b.name} `,
@@ -1394,12 +1419,17 @@ function renderPanel(w) {
           onclick: () => toggleLink(w, e),
         }),
       );
+    // Both ends of a cable have the same cost, so take it from whichever of them
+    // runs the protocol.
+    const known = pa || pb;
     const rows = [
       [`${e.a.name} port`, roleState(w, pa), colorFor(pa?.state)],
       [`${e.b.name} port`, roleState(w, pb), colorFor(pb?.state)],
       [
         "cost",
-        e.cost != null ? e.cost : `auto (${pa ? pa.external_path_cost : "?"})`,
+        e.cost != null
+          ? e.cost
+          : `auto (${known ? known.external_path_cost : "?"})`,
       ],
     ];
     const na = portFlags(pa);
@@ -1424,9 +1454,11 @@ function renderPanel(w) {
   const n = w.selected.ref;
   const b = snap.bridges.get(n.bridge.handle);
   const head = h("h3", { text: n.name + " " });
-  if (b && b.is_root) head.appendChild(badge("ROOT", "#2a7"));
+  if (b && b.is_root && !noStp(n)) head.appendChild(badge("ROOT", "#2a7"));
+  if (noStp(n)) head.appendChild(badge("NO STP", "#888"));
   panel.appendChild(head);
-  if (b)
+  if (b && noStp(n)) panel.appendChild(kvTable([["protocol", "none"]]));
+  else if (b)
     panel.appendChild(
       kvTable([
         ["priority", n.prio ?? 32768],
@@ -1441,7 +1473,7 @@ function renderPanel(w) {
   tbl.innerHTML = "<thead><tr><th>port</th><th>role / state</th></tr></thead>";
   const body = h("tbody");
   for (const port of n.ports) {
-    const ps = snap.ports.get(port.handle);
+    const ps = shown(n, snap.ports.get(port.handle));
     const tr = h("tr");
     tr.appendChild(h("td", { text: peerLabel(w, port, n) }));
     const td = h("td", { text: roleState(w, ps) });

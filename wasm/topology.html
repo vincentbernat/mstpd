@@ -171,6 +171,24 @@ b10 -- b11
 </pre
     >
 
+    <h2>A loop through a switch with no STP</h2>
+    <pre class="mstp-topology">
+# C runs no spanning tree, so it forwards nothing to A and B
+# about each other. Both ports facing it end up forwarding and
+# the loop A-B-C stays open.
+
+:protocol rstp
+
+A @0,0  prio=4096
+B @2,0  prio=8192
+C @1,2  proto=none  icon=🔌
+
+A -- B
+A -- C
+B -- C
+</pre
+    >
+
     <h2>A one-way link and dispute</h2>
     <pre class="mstp-topology">
 :protocol rstp
