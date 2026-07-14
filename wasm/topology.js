@@ -35,9 +35,10 @@
 const loadMSTPD = window.mstpd.loadMSTPD;
 const SVGNS = "http://www.w3.org/2000/svg";
 const UNIT = 110; // grid cell -> px
-const R = 24; // node radius in px
-const NO_STP_R = 16; // half the side of a bridge that runs no protocol
-const PAD = R + 24; // viewBox margin around the nodes
+const NODE_RADIUS = 24; // node radius in px
+const NO_STP_RADIUS = 16; // half the side of a bridge that runs no protocol
+const PORT_MARKER_OFFSET = NODE_RADIUS + 9; // how far from a node's centre its port marker sits
+const PAD = NODE_RADIUS + 24; // viewBox margin around the nodes
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
 const FLIGHT_MS = 500; // how long a BPDU takes to cross a link
@@ -1084,9 +1085,12 @@ function render(w) {
     // circle, or of its box when it runs no protocol. A parallel link is pushed
     // sideways by (ox, oy), so it leaves the shape at a different place.
     const border = (n, dx, dy) => {
-      if (!noStp(n)) return Math.sqrt(Math.max(R * R - spread * spread, 0));
-      const tx = dx ? (Math.sign(dx) * NO_STP_R - ox) / dx : Infinity;
-      const ty = dy ? (Math.sign(dy) * NO_STP_R - oy) / dy : Infinity;
+      if (!noStp(n))
+        return Math.sqrt(
+          Math.max(NODE_RADIUS * NODE_RADIUS - spread * spread, 0),
+        );
+      const tx = dx ? (Math.sign(dx) * NO_STP_RADIUS - ox) / dx : Infinity;
+      const ty = dy ? (Math.sign(dy) * NO_STP_RADIUS - oy) / dy : Infinity;
       return Math.max(0, Math.min(tx, ty));
     };
     const fromA = border(e.a, ux, uy);
@@ -1143,9 +1147,15 @@ function render(w) {
       gEdges,
     );
 
+    // The middle of the link, taken between the two port markers. They sit a
+    // little inside the line, so the middle of the line itself would be off
+    // centre when the two ends are not the same shape.
+    const endA = noStp(e.a) ? fromA : PORT_MARKER_OFFSET;
+    const endB = noStp(e.b) ? fromB : PORT_MARKER_OFFSET;
+    const mx = (e.a.x + ux * endA + (e.b.x - ux * endB)) / 2 + ox;
+    const my = (e.a.y + uy * endA + (e.b.y - uy * endB)) / 2 + oy;
+
     if (down) {
-      const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2;
       const s = 7;
       const cross = {
         stroke: "#e55",
@@ -1167,8 +1177,6 @@ function render(w) {
 
     if (e.faulty) {
       // A diode at the midpoint.
-      const mx = (x1 + x2) / 2;
-      const my = (y1 + y2) / 2;
       const s = 8; // half length along the link
       const wsym = 7; // half width of the base and the bar
       const px = -uy;
@@ -1229,16 +1237,16 @@ function render(w) {
       svgEl(
         "rect",
         {
-          x: n.x - NO_STP_R,
-          y: n.y - NO_STP_R,
-          width: 2 * NO_STP_R,
-          height: 2 * NO_STP_R,
+          x: n.x - NO_STP_RADIUS,
+          y: n.y - NO_STP_RADIUS,
+          width: 2 * NO_STP_RADIUS,
+          height: 2 * NO_STP_RADIUS,
           rx: 3,
           ...shape,
         },
         g,
       );
-    else svgEl("circle", { cx: n.x, cy: n.y, r: R, ...shape }, g);
+    else svgEl("circle", { cx: n.x, cy: n.y, r: NODE_RADIUS, ...shape }, g);
     drawNodeGlyph(g, n);
     svgEl(
       "text",
@@ -1288,7 +1296,7 @@ function drawNodeGlyph(parent, n) {
         y: n.y,
         "text-anchor": "middle",
         "dominant-baseline": "central",
-        "font-size": noStp(n) ? (30 * NO_STP_R) / R : 30,
+        "font-size": noStp(n) ? (30 * NO_STP_RADIUS) / NODE_RADIUS : 30,
         opacity: 0.3,
         filter: "url(#mstp-gray)",
         "pointer-events": "none",
@@ -1343,8 +1351,8 @@ function drawEndpoint(parent, from, to, ps, ox = 0, oy = 0) {
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
-  const px = from.x + ux * (R + 9) + ox;
-  const py = from.y + uy * (R + 9) + oy;
+  const px = from.x + ux * PORT_MARKER_OFFSET + ox;
+  const py = from.y + uy * PORT_MARKER_OFFSET + oy;
   svgEl(
     "rect",
     {
