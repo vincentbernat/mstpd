@@ -232,6 +232,8 @@ function h(tag, opts = {}, ...kids) {
   return e;
 }
 
+const icon = (e) => `<i class="mstp-icon">${e}</i>`;
+
 // Hello time is left out: the core only accepts 2 seconds.
 const timersOf = (d) => ({
   forwardDelay: d.forwardDelay,
@@ -276,16 +278,28 @@ async function mount(el) {
   const bar = h("div", { class: "mstp-bar" });
   const runBtn = h("button", {
     class: "mstp-btn mstp-toggle",
-    html: "<span>Start</span><span>Stop</span>",
+    html: `<span>${icon("▶️")} Start</span><span>${icon("⏹️")} Stop</span>`,
   });
   const stepBtn = h("button", {
     class: "mstp-btn",
-    text: "Step",
+    html: `${icon("⏭️")} Step`,
   });
-  const resetBtn = h("button", { class: "mstp-btn", text: "Reset" });
-  const editBtn = h("button", { class: "mstp-btn", text: "Edit" });
-  const saveBtn = h("button", { class: "mstp-btn mstp-accent", text: "Save" });
-  const discardBtn = h("button", { class: "mstp-btn", text: "Discard" });
+  const resetBtn = h("button", {
+    class: "mstp-btn",
+    html: `${icon("🔄")} Reset`,
+  });
+  const editBtn = h("button", {
+    class: "mstp-btn",
+    html: `${icon("✏️")} Edit`,
+  });
+  const saveBtn = h("button", {
+    class: "mstp-btn mstp-accent",
+    html: `${icon("💾")} Save`,
+  });
+  const discardBtn = h("button", {
+    class: "mstp-btn",
+    html: `${icon("🗑️")} Discard`,
+  });
   runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { text: "t=0s" });
@@ -1416,7 +1430,9 @@ function renderPanel(w) {
       panel.appendChild(
         h("button", {
           class: "mstp-btn mstp-toggle" + (broken ? " mstp-active" : ""),
-          html: "<span>Cut link</span><span>Restore link</span>",
+          html:
+            `<span>${icon("✂️")} Cut link</span>` +
+            `<span>${icon("🔗")} Restore link</span>`,
           onclick: () => toggleLink(w, e),
         }),
       );
@@ -1543,7 +1559,7 @@ function notLaunched(w) {
 function pcapButton(w, filename, port) {
   return h("button", {
     class: "mstp-btn mstp-pcap",
-    text: "📦 Download packets",
+    html: `${icon("📦")} Download packets`,
     onclick: () => w.mstp.downloadPcap(port, filename, notLaunched(w)),
   });
 }

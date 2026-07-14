@@ -37,8 +37,11 @@
         border: 1px solid var(--btn-line);
         background: var(--fill);
         cursor: pointer;
-        &:hover {
+        &:hover:not(:disabled) {
             background: var(--fill-hover);
+            .mstp-icon {
+                filter: none;
+            }
         }
         &:disabled {
             cursor: default;
@@ -77,6 +80,11 @@
                 }
             }
         }
+    }
+
+    .mstp-icon {
+        font-style: normal;
+        filter: grayscale(1);
     }
 
     .mstp-clock {
