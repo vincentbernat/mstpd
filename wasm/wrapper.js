@@ -70,6 +70,21 @@ function ethFrame(srcHex, bpdu) {
   return frame;
 }
 
+// Leave out the last frames a port sent, as counted by the drop map (port
+// handle -> how many). A port sends its frames in order, so the ones to leave
+// out are the last of its own, wherever they sit among the others.
+function dropLast(frames, drop) {
+  if (!drop || !drop.size) return frames;
+  const left = new Map(drop);
+  const kept = [];
+  for (let i = frames.length - 1; i >= 0; --i) {
+    const n = left.get(frames[i].port) || 0;
+    if (n) left.set(frames[i].port, n - 1);
+    else kept.push(frames[i]);
+  }
+  return kept.reverse();
+}
+
 // Serialize captured BPDUs into a classic pcap file (LINKTYPE_ETHERNET) as a
 // Uint8Array. Timestamps come from the simulation clock: whole seconds in t,
 // with the within-second order kept in subsec (used as microseconds).
@@ -284,17 +299,18 @@ class MSTPD {
   // Return the captured BPDUs as a classic pcap file (a Uint8Array). The ring
   // is left intact, so this can be called repeatedly as the capture grows. Pass
   // a Port (or its handle) to keep only that BPDUs sent or received on this
-  // port.
-  pcap(port) {
+  // port. drop is a map of port handle -> how many of its most recent frames to
+  // leave out, for a caller that is not done with them yet.
+  pcap(port, drop) {
     const handle = port instanceof Port ? port.handle : (port ?? -1);
     const frames = JSON.parse(takeString(this.m, this.#captureJSON(handle)));
-    return buildPcap(frames);
+    return buildPcap(dropLast(frames, drop));
   }
 
   // Browser helper: save the capture as a .pcap download. Pass a Port (or its
   // handle) to restrict it to that port's link, as pcap() does.
-  downloadPcap(port, filename = "bpdus.pcap") {
-    const blob = new Blob([this.pcap(port)], {
+  downloadPcap(port, filename = "bpdus.pcap", drop) {
+    const blob = new Blob([this.pcap(port, drop)], {
       type: "application/vnd.tcpdump.pcap",
     });
     const url = URL.createObjectURL(blob);

@@ -901,6 +901,7 @@ function emitWave(w, gen) {
     nth.set(f.src, i + 1);
     w.flights.push({
       link: g.link,
+      src: f.src,
       sx: g.sx,
       sy: g.sy,
       tx: g.tx,
@@ -1527,13 +1528,23 @@ function badge(text, color) {
   return b;
 }
 
+// The BPDUs the core has transmitted but whose pills have not set off yet, one
+// count per port. They are on the wire and the capture holds them, but they are
+// not part of what has been played, so the pcap leaves them out.
+function notLaunched(w) {
+  const n = new Map();
+  for (const f of w.flights)
+    if (f.start >= w.clock) n.set(f.src, (n.get(f.src) || 0) + 1);
+  return n;
+}
+
 // A button that saves captured BPDUs as a pcap: the whole capture when no port
 // is given, or just that port's link (both directions) when one is.
 function pcapButton(w, filename, port) {
   return h("button", {
     class: "mstp-btn mstp-pcap",
     text: "📦 Download packets",
-    onclick: () => w.mstp.downloadPcap(port, filename),
+    onclick: () => w.mstp.downloadPcap(port, filename, notLaunched(w)),
   });
 }
 
