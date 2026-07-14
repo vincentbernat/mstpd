@@ -126,6 +126,7 @@
             background: var(--fill);
             touch-action: manipulation;
             user-select: none;
+            fill: currentColor;
         }
     }
 
