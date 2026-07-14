@@ -19,7 +19,7 @@ CFLAGS = -O3 -DNO_DAEMON=1 -I. -I$(ROOT) -Icompat \
          -Wno-unused-parameter -Wno-unknown-warning-option
 EMFLAGS = \
 	-sMODULARIZE=1 \
-	-sEXPORT_NAME=createMstpd \
+	-sEXPORT_NAME=createMSTPD \
 	-sSINGLE_FILE=1 \
 	-sALLOW_MEMORY_GROWTH=1 \
 	-sENVIRONMENT=web,worker \

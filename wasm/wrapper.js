@@ -3,9 +3,9 @@
 // JavaScript wrapper around the MSTPD WebAssembly core.
 //
 // This is not a standalone module: the build concatenates it onto the end of
-// the Emscripten output via --extern-post-js, so `createMstpd` (the factory
+// the Emscripten output via --extern-post-js, so `createMSTPD` (the factory
 // Emscripten emits) is already in scope. The resulting single file is
-// dist/mstpd.mjs, exporting createMstpd (default) plus the API below.
+// dist/mstpd.mjs, exporting createMSTPD (default) plus the API below.
 
 // Mirror of port_role_t / BR_STATE_xxx for the scalar getters.
 export const Role = [
@@ -24,9 +24,9 @@ export const State = [
   "blocking",
 ];
 
-export async function loadMstpd(moduleOverrides = {}) {
-  const Module = await createMstpd(moduleOverrides);
-  return new Mstpd(Module);
+export async function loadMSTPD(moduleOverrides = {}) {
+  const Module = await createMSTPD(moduleOverrides);
+  return new MSTPD(Module);
 }
 
 // Read a C string returned by a *_json() call, then free the heap buffer.
@@ -106,20 +106,20 @@ function buildPcap(frames) {
   return buf;
 }
 
-class Mstpd {
+class MSTPD {
   #onEvent = null;
   #traceEnable;
-  #traceJson;
+  #traceJSON;
   #captureEnable;
-  #captureJson;
+  #captureJSON;
 
   constructor(Module) {
     this.m = Module;
     const c = (name, ret, args) => Module.cwrap(name, ret, args);
     this.#traceEnable = c("mstpw_trace_enable", null, ["number"]);
-    this.#traceJson = c("mstpw_trace_json", "number", []);
+    this.#traceJSON = c("mstpw_trace_json", "number", []);
     this.#captureEnable = c("mstpw_capture_enable", null, ["number"]);
-    this.#captureJson = c("mstpw_capture_json", "number", ["number"]);
+    this.#captureJSON = c("mstpw_capture_json", "number", ["number"]);
     this._ = {
       setLogLevel: c("mstpw_set_log_level", null, ["number"]),
       bridgeCreate: c("mstpw_bridge_create", "number", ["string", "string"]),
@@ -148,7 +148,7 @@ class Mstpd {
       unlink: c("mstpw_unlink", "number", ["number"]),
       oneSecond: c("mstpw_one_second", null, []),
       deliverBPDUs: c("mstpw_deliver_bpdus", "number", ["number"]),
-      queuedJson: c("mstpw_queued_json", "number", ["number"]),
+      queuedJSON: c("mstpw_queued_json", "number", ["number"]),
       step: c("mstpw_step", null, ["number"]),
       setForceProtocolVersion: c("mstpw_set_force_protocol_version", "number", [
         "number",
@@ -219,9 +219,9 @@ class Mstpd {
       ]),
       portRole: c("mstpw_port_role", "number", ["number", "number"]),
       portState: c("mstpw_port_state", "number", ["number", "number"]),
-      bridgeJson: c("mstpw_bridge_json", "number", ["number"]),
-      portJson: c("mstpw_port_json", "number", ["number"]),
-      topologyJson: c("mstpw_topology_json", "number", []),
+      bridgeJSON: c("mstpw_bridge_json", "number", ["number"]),
+      portJSON: c("mstpw_port_json", "number", ["number"]),
+      topologyJSON: c("mstpw_topology_json", "number", []),
     };
     this.m.ccall("mstpw_init");
   }
@@ -270,7 +270,7 @@ class Mstpd {
 
   #drainEvents() {
     if (!this.#onEvent) return;
-    const events = JSON.parse(takeString(this.m, this.#traceJson()));
+    const events = JSON.parse(takeString(this.m, this.#traceJSON()));
     for (const e of events) this.#onEvent(e);
   }
 
@@ -287,7 +287,7 @@ class Mstpd {
   // port.
   pcap(port) {
     const handle = port instanceof Port ? port.handle : (port ?? -1);
-    const frames = JSON.parse(takeString(this.m, this.#captureJson(handle)));
+    const frames = JSON.parse(takeString(this.m, this.#captureJSON(handle)));
     return buildPcap(frames);
   }
 
@@ -326,7 +326,7 @@ class Mstpd {
   // seq only ever grows, so pass the highest one already seen to get just the
   // frames sent since.
   queuedBPDUs(since = 0) {
-    return JSON.parse(takeString(this.m, this._.queuedJson(since)));
+    return JSON.parse(takeString(this.m, this._.queuedJSON(since)));
   }
 
   step(seconds = 1) {
@@ -335,7 +335,7 @@ class Mstpd {
   }
 
   topology() {
-    return JSON.parse(takeString(this.m, this._.topologyJson()));
+    return JSON.parse(takeString(this.m, this._.topologyJSON()));
   }
 }
 
@@ -436,7 +436,7 @@ class Bridge {
 
   status() {
     return JSON.parse(
-      takeString(this.mstp.m, this.mstp._.bridgeJson(this.handle)),
+      takeString(this.mstp.m, this.mstp._.bridgeJSON(this.handle)),
     );
   }
 }
@@ -508,7 +508,7 @@ class Port {
 
   status() {
     return JSON.parse(
-      takeString(this.mstp.m, this.mstp._.portJson(this.handle)),
+      takeString(this.mstp.m, this.mstp._.portJSON(this.handle)),
     );
   }
 }
@@ -548,18 +548,18 @@ class Link {
   }
 }
 
-export { Mstpd, Bridge, Port, Link };
+export { MSTPD, Bridge, Port, Link };
 
 // Convenience for non-module browser code.
 if (typeof window !== "undefined") {
   window.mstpd = {
-    loadMstpd,
-    Mstpd,
+    loadMSTPD,
+    MSTPD,
     Bridge,
     Port,
     Link,
     Role,
     State,
-    createMstpd,
+    createMSTPD,
   };
 }

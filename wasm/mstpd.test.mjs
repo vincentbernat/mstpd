@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadMstpd } from "./dist/mstpd.mjs";
+import { loadMSTPD } from "./dist/mstpd.mjs";
 
 // 40 "seconds" is ample for these small point-to-point topologies to converge.
 const CONVERGE = 40;
@@ -35,7 +35,7 @@ function buildTriangle(mstp) {
 }
 
 test("two bridges: lower priority becomes root", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -55,7 +55,7 @@ test("two bridges: lower priority becomes root", async () => {
 });
 
 test("triangle loop: exactly one port blocks and all agree on the root", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   buildTriangle(mstp);
   mstp.step(CONVERGE);
 
@@ -74,7 +74,7 @@ test("triangle loop: exactly one port blocks and all agree on the root", async (
 });
 
 test("breaking the active link reconverges and restoring recovers", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const g = buildTriangle(mstp);
   mstp.step(CONVERGE);
 
@@ -141,7 +141,7 @@ test("deleting a topology leaves no in-flight BPDUs to taint the next one", asyn
       .sort();
   };
 
-  const fresh = await loadMstpd();
+  const fresh = await loadMSTPD();
   buildRing(fresh);
   const freshRoots = rootsAfterOneSecond(fresh);
   assert.deepEqual(
@@ -150,7 +150,7 @@ test("deleting a topology leaves no in-flight BPDUs to taint the next one", asyn
     "on a clean start no bridge has deferred yet after one second",
   );
 
-  const reused = await loadMstpd();
+  const reused = await loadMSTPD();
   let nodes = buildRing(reused);
   reused.step(CONVERGE); // let it fully settle and transmit for a while
   for (const n of Object.values(nodes)) n.br.delete();
@@ -176,11 +176,11 @@ test("delivering a second's BPDUs one generation at a time matches step()", asyn
       .join(" ");
 
   // Same topology on two engines: one stepped whole seconds, one wave by wave.
-  const whole = await loadMstpd();
+  const whole = await loadMSTPD();
   buildTriangle(whole);
   whole.step(CONVERGE);
 
-  const waved = await loadMstpd();
+  const waved = await loadMSTPD();
   buildTriangle(waved);
   let sawCascade = false;
   for (let s = 0; s < CONVERGE; s++) {
@@ -201,7 +201,7 @@ test("delivering a second's BPDUs one generation at a time matches step()", asyn
 
   // A fresh point-to-point handshake, watched generation by generation: record
   // the first generation each event appears in (encoded as second*1000 + wave).
-  const eng = await loadMstpd();
+  const eng = await loadMSTPD();
   const a = eng.createBridge("a", { priority: 4096 });
   const b = eng.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -239,7 +239,7 @@ test("delivering a second's BPDUs one generation at a time matches step()", asyn
 });
 
 test("two bridges with two parallel links: one link forwards, the other blocks", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const a1 = a.addPort("a1", { portno: 1 });
@@ -267,7 +267,7 @@ test("two bridges with two parallel links: one link forwards, the other blocks",
 });
 
 test("port path cost selects the root port", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const a1 = a.addPort("a1", { portno: 1 });
@@ -285,7 +285,7 @@ test("port path cost selects the root port", async () => {
 });
 
 test("MSTP bridges in the same region share an MSTI regional root", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const region = { protocol: "mstp", configId: { revision: 1, name: "r1" } };
   const a = mstp.createBridge("a", { priority: 4096, ...region });
   const b = mstp.createBridge("b", { priority: 8192, ...region });
@@ -311,7 +311,7 @@ test("MSTP bridges in the same region share an MSTI regional root", async () => 
 });
 
 test("global timers: a valid set applies, an invalid combination is rejected", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   mstp.setLogLevel(0); // the invalid set below logs an expected error
   const a = mstp.createBridge("a", { priority: 4096 });
   a.enable();
@@ -327,7 +327,7 @@ test("global timers: a valid set applies, an invalid combination is rejected", a
 });
 
 test("an unlinked, enabled port becomes designated/forwarding", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const p = a.addPort("lonely", { portno: 1 });
   a.enable();
@@ -339,7 +339,7 @@ test("an unlinked, enabled port becomes designated/forwarding", async () => {
 });
 
 test("a port only gets a carrier once both ends of its cable are up", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -380,7 +380,7 @@ test("a port only gets a carrier once both ends of its cable are up", async () =
 });
 
 test("queuedBPDUs describes the BPDUs waiting on the wire", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -440,7 +440,7 @@ test("queuedBPDUs describes the BPDUs waiting on the wire", async () => {
 });
 
 test("onEvent returns the RSTP states", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const events = [];
   mstp.onEvent((e) => events.push(e));
   const a = mstp.createBridge("a", { priority: 4096 });
@@ -484,7 +484,7 @@ test("a topology change is emitted the same second as the handshake, then persis
   // TC-flagged BPDU goes out inside the very same deliver loop, not on the next
   // one-second tick. The TC flag then rides the periodic hellos for the tcWhile
   // window (a few seconds) before the port goes quiet again.
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const a1 = a.addPort("a1", { portno: 1 });
@@ -542,7 +542,7 @@ test("a topology change is emitted the same second as the handshake, then persis
 });
 
 test("onEvent(null) detaches the listener", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   let count = 0;
   mstp.onEvent(() => count++);
   const a = mstp.createBridge("a", { priority: 4096 });
@@ -559,7 +559,7 @@ test("onEvent(null) detaches the listener", async () => {
 });
 
 test("two ports on the same segment: one is designated, the other backup", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const a1 = a.addPort("a1", { portno: 1 });
   const a2 = a.addPort("a2", { portno: 2 });
@@ -575,7 +575,7 @@ test("two ports on the same segment: one is designated, the other backup", async
 });
 
 test("auto-edge: a port seeing no BPDU becomes edge unless auto-edge is off", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   // auto-edge defaults on; the second port has it explicitly disabled.
   const edge = a.addPort("edge", { portno: 1, autoEdge: true });
@@ -591,7 +591,7 @@ test("auto-edge: a port seeing no BPDU becomes edge unless auto-edge is off", as
 });
 
 test("admin p2p: forcing point-to-point off is reflected in oper_p2p", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -616,7 +616,7 @@ test("no-p2p link stays learning a whole second at a time", async () => {
   // discarding -> learning -> forwarding on the forward-delay timer, and the
   // learning state stays visible from one second to the next.
   const statesSecondBySecond = async (p2p) => {
-    const mstp = await loadMstpd();
+    const mstp = await loadMSTPD();
     const a = mstp.createBridge("a", { priority: 4096 });
     const b = mstp.createBridge("b", { priority: 8192 });
     for (const br of [a, b]) br.setTimes({ forwardDelay: 4, maxAge: 6 });
@@ -648,7 +648,7 @@ test("no-p2p link stays learning a whole second at a time", async () => {
 });
 
 test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   mstp.setLogLevel(0); // the guard trip logs an expected error
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
@@ -673,7 +673,7 @@ test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down"
 });
 
 test("root guard: a restricted-role port refuses to become the root port", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   // b would normally make a (lower priority) the root and pick its port toward
   // a as the root port. Root guard (restricted role) bars that port from ever
   // leading to the root, so b keeps itself as root and the port goes blocking.
@@ -696,7 +696,7 @@ test("root guard: a restricted-role port refuses to become the root port", async
 });
 
 test("dispute mechanism: a designated port over a one-way link is held blocking", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   // Superior bridge a, inferior bridge b, joined by a unidirectional link: b's
   // BPDUs reach a, but a's never reach b. b never hears a superior, so it stays
   // root and forwards (setting the Learning flag). a sees an inferior
@@ -723,7 +723,7 @@ test("dispute mechanism: a designated port over a one-way link is held blocking"
 });
 
 test("bridge assurance: a network port blocks when its neighbour goes silent", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   mstp.setLogLevel(0); // the inconsistency logs an expected error
 
   // Both ends are network ports, so each keeps sending BPDUs regardless of role
@@ -767,7 +767,7 @@ test("bridge assurance: a network port blocks when its neighbour goes silent", a
 });
 
 test("configuration set through the API is reflected back in the JSON", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", {
     priority: 4096,
     protocol: "mstp",
@@ -811,7 +811,7 @@ test("configuration set through the API is reflected back in the JSON", async ()
 });
 
 test("BPDUs are exchanged and counters advance", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -826,7 +826,7 @@ test("BPDUs are exchanged and counters advance", async () => {
 });
 
 test("bridge names are JSON-escaped", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const tricky = 'a"b\\c\td'; // quote, backslash, tab (<= 15 chars)
   const a = mstp.createBridge(tricky, { priority: 4096 });
   a.enable();
@@ -835,7 +835,7 @@ test("bridge names are JSON-escaped", async () => {
 });
 
 test("pure STP triangle breaks the loop and never sends RSTP", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const stp = { protocol: "stp" };
   const a = mstp.createBridge("a", { priority: 4096, ...stp });
   const b = mstp.createBridge("b", { priority: 8192, ...stp });
@@ -873,7 +873,7 @@ test("pure STP triangle breaks the loop and never sends RSTP", async () => {
 });
 
 test("RSTP falls back to STP when the peer only speaks STP", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096, protocol: "rstp" });
   const b = mstp.createBridge("b", { priority: 8192, protocol: "stp" });
   const pa = a.addPort("a1", { portno: 1 });
@@ -895,7 +895,7 @@ test("RSTP falls back to STP when the peer only speaks STP", async () => {
 });
 
 test("MSTP interoperates with an RSTP peer without dropping to STP", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", {
     priority: 4096,
     protocol: "mstp",
@@ -922,7 +922,7 @@ test("MSTP interoperates with an RSTP peer without dropping to STP", async () =>
 });
 
 test("an RSTP switch in the middle splits two same-config MSTP bridges into separate regions", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const region = { protocol: "mstp", configId: { revision: 1, name: "r1" } };
   // a and c share an identical MST configuration, but the RSTP switch m sits
   // between them. m cannot carry MSTI information, so it is a region boundary
@@ -967,7 +967,7 @@ test("an RSTP switch in the middle splits two same-config MSTP bridges into sepa
 });
 
 test("two MSTP regions: the CIST spans both while each keeps its own MSTI tree", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const r1 = { protocol: "mstp", configId: { revision: 1, name: "r1" } };
   const r2 = { protocol: "mstp", configId: { revision: 2, name: "r2" } };
   // Region 1 = {a, b}, region 2 = {c, d}. The regions touch through two links
@@ -1041,7 +1041,7 @@ test("two MSTP regions: the CIST spans both while each keeps its own MSTI tree",
 });
 
 test("STP, RSTP and MSTP in one triangle converge to a single tree", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096, protocol: "stp" });
   const b = mstp.createBridge("b", { priority: 8192, protocol: "rstp" });
   const c = mstp.createBridge("c", {
@@ -1086,7 +1086,7 @@ test("STP, RSTP and MSTP in one triangle converge to a single tree", async () =>
 });
 
 test("a chain longer than Max Age elects more than one root", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const N = 12;
   const br = [];
   for (let i = 0; i < N; i++) {
@@ -1119,7 +1119,7 @@ test("a chain longer than Max Age elects more than one root", async () => {
 });
 
 test("capture: transmitted BPDUs come back as a valid pcap", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -1166,7 +1166,7 @@ test("capture: transmitted BPDUs come back as a valid pcap", async () => {
 });
 
 test("capture: off by default and cleared on re-enable", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
   const pa = a.addPort("a1", { portno: 1 });
   a.enable();
@@ -1187,7 +1187,7 @@ test("capture: off by default and cleared on re-enable", async () => {
 });
 
 test("capture: the ring keeps the most recent BPDUs, bounded", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   buildTriangle(mstp);
   mstp.capture();
 
@@ -1218,7 +1218,7 @@ test("capture: the ring keeps the most recent BPDUs, bounded", async () => {
 });
 
 test("capture: pcap(port) downloads only that link", async () => {
-  const mstp = await loadMstpd();
+  const mstp = await loadMSTPD();
   const g = buildTriangle(mstp);
   mstp.capture();
   mstp.step(CONVERGE);

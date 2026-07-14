@@ -247,7 +247,7 @@
     </div>
 
     <script type="module">
-      import { loadMstpd } from "./dist/mstpd.mjs";
+      import { loadMSTPD } from "./dist/mstpd.mjs";
 
       let mstp,
         clock = 0,
@@ -277,7 +277,7 @@
 
       function build() {
         // Fresh module each reset so state starts clean.
-        return loadMstpd().then((m) => {
+        return loadMSTPD().then((m) => {
           mstp = m;
           clock = 0;
           eventsBox.textContent = "";

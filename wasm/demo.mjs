@@ -6,9 +6,9 @@
 //
 // Run with:  node wasm/demo.mjs
 
-import { loadMstpd } from "./dist/mstpd.mjs";
+import { loadMSTPD } from "./dist/mstpd.mjs";
 
-const mstp = await loadMstpd();
+const mstp = await loadMSTPD();
 // mstp.setLogLevel(2); // uncomment for INFO-level logging on stderr
 
 const a = mstp.createBridge("br-a", { priority: 4096 });

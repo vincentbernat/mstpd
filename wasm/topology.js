@@ -24,12 +24,12 @@
 // Endpoint flags: edge, network, bpdu-guard, root-guard, no-p2p
 //
 // The MSTPD core is loaded via its own <script> tag (above), which publishes
-// window.mstpd; this module picks loadMstpd off it rather than importing. We
+// window.mstpd; this module picks loadMSTPD off it rather than importing. We
 // could instead import it:
 //
-// import { loadMstpd } from "./dist/mstpd.mjs";
+// import { loadMSTPD } from "./dist/mstpd.mjs";
 
-const loadMstpd = window.mstpd.loadMstpd;
+const loadMSTPD = window.mstpd.loadMSTPD;
 const SVGNS = "http://www.w3.org/2000/svg";
 const UNIT = 110; // grid cell -> px
 const R = 24; // node radius in px
@@ -416,7 +416,7 @@ async function mount(el) {
   };
 
   try {
-    w.mstp = await loadMstpd({
+    w.mstp = await loadMSTPD({
       print: () => {},
       printErr: () => {},
     });

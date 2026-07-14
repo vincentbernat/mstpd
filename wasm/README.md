@@ -34,8 +34,8 @@ make test          # builds if needed, then runs *.test.mjs
 
 ## Using it
 
-Import `dist/mstpd.mjs`: alongside Emscripten's default `createMstpd` factory it
-exports the ergonomic API (`loadMstpd`, `Mstpd`, `Bridge`, `Port`, `Link`).
+Import `dist/mstpd.mjs`: alongside Emscripten's default `createMSTPD` factory it
+exports the ergonomic API (`loadMSTPD`, `MSTPD`, `Bridge`, `Port`, `Link`).
 Look at `demo.mjs` as a minimal example for Node.
 
 ```sh
