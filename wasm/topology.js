@@ -418,7 +418,7 @@ async function mount(el) {
   svg.addEventListener("pointerdown", (ev) => {
     if (w.mstp && ev.target === svg) select(w, null);
   });
-  runBtn.onclick = () => setRunning(w, !w.running);
+  runBtn.onclick = () => (w.running ? stopRunning(w) : setRunning(w, true));
   stepBtn.onclick = () => stepOnce(w);
   resetBtn.onclick = () => {
     setRunning(w, false);
@@ -844,6 +844,18 @@ function endStep(w) {
   stopLoop(w);
 }
 
+// When stopping, just toggle the running flag and finish the current step if
+// any. Otherwise, just stop where we are.
+function stopRunning(w) {
+  if (w.raf && w.wave) {
+    w.running = false;
+    w.stepping = true;
+    w.runBtn.classList.remove("mstp-active");
+    return;
+  }
+  setRunning(w, false);
+}
+
 function setRunning(w, on) {
   if (on && !w.running) {
     w.running = true;
@@ -858,18 +870,6 @@ function setRunning(w, on) {
     w.running = w.stepping = false;
     stopLoop(w);
     w.runBtn.classList.remove("mstp-active");
-
-    // Pausing with BPDUs still on the wire: deliver them, and everything they
-    // trigger, so the diagram settles where the second was heading.
-    if (w.wave) {
-      w.mstp.deliverBPDUs(true);
-      w.wave = null;
-      endTick(w);
-    }
-    w.flights = [];
-    w.svg.querySelector(".mstp-pills")?.remove();
-    render(w);
-    renderPanel(w);
   }
 }
 
