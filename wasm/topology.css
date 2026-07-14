@@ -200,6 +200,9 @@
     .mstp-clock-c:not(:empty)::before {
       content: none;
     }
+    .mstp-icon {
+      display: none;
+    }
   }
 
   .mstp-hint {

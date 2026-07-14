@@ -232,7 +232,8 @@ function h(tag, opts = {}, ...kids) {
   return e;
 }
 
-const icon = (e) => `<i class="mstp-icon">${e}</i>`;
+// The trailing space lives inside, so it goes away with the icon.
+const icon = (e) => `<i class="mstp-icon">${e} </i>`;
 
 // Hello time is left out: the core only accepts 2 seconds.
 const timersOf = (d) => ({
@@ -278,27 +279,27 @@ async function mount(el) {
   const bar = h("div", { class: "mstp-bar" });
   const runBtn = h("button", {
     class: "mstp-btn mstp-toggle",
-    html: `<span>${icon("▶️")} Start</span><span>${icon("⏹️")} Stop</span>`,
+    html: `<span>${icon("▶️")}Start</span><span>${icon("⏹️")}Stop</span>`,
   });
   const stepBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("⏭️")} Step`,
+    html: `${icon("⏭️")}Step`,
   });
   const resetBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("🔄")} Reset`,
+    html: `${icon("🔄")}Reset`,
   });
   const editBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("✏️")} Edit`,
+    html: `${icon("✏️")}Edit`,
   });
   const saveBtn = h("button", {
     class: "mstp-btn mstp-accent",
-    html: `${icon("💾")} Save`,
+    html: `${icon("💾")}Save`,
   });
   const discardBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("🗑️")} Discard`,
+    html: `${icon("🗑️")}Discard`,
   });
   runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
@@ -1431,8 +1432,8 @@ function renderPanel(w) {
         h("button", {
           class: "mstp-btn mstp-toggle" + (broken ? " mstp-active" : ""),
           html:
-            `<span>${icon("✂️")} Cut link</span>` +
-            `<span>${icon("🔗")} Restore link</span>`,
+            `<span>${icon("✂️")}Cut link</span>` +
+            `<span>${icon("🔗")}Restore link</span>`,
           onclick: () => toggleLink(w, e),
         }),
       );
@@ -1559,7 +1560,7 @@ function notLaunched(w) {
 function pcapButton(w, filename, port) {
   return h("button", {
     class: "mstp-btn mstp-pcap",
-    html: `${icon("📦")} Download packets`,
+    html: `${icon("📦")}Download packets`,
     onclick: () => w.mstp.downloadPcap(port, filename, notLaunched(w)),
   });
 }
