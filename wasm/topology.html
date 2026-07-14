@@ -210,6 +210,13 @@ C -- A
 
     <h1>A one-way link and dispute</h1>
     <pre class="mstp-topology">
+# Demo for the dispute mechanism. Remove the link failure, wait
+# for the convergence, then put back the undirectional failure.
+# B don't hear from A and assume this is an edge port. Once
+# A receives the inferior BPDU from a designated port, it triggers
+# the dispute mechanism. The state is not visible because it is
+# cleared once A switch the port to the discarding state.
+
 :protocol rstp
 
 A @0,0  prio=4096

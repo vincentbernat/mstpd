@@ -647,7 +647,7 @@ test("no-p2p link stays learning a whole second at a time", async () => {
   assert.ok(!fast.has("learning"), "a p2p handshake skips visible learning");
 });
 
-test("bpdu guard: a guarded port receiving a BPDU trips the guard and goes down", async () => {
+test("bpdu guard: a guarded port receiving a BPDU goes down", async () => {
   const mstp = await loadMSTPD();
   mstp.setLogLevel(0); // the guard trip logs an expected error
   const a = mstp.createBridge("a", { priority: 4096 });
@@ -695,14 +695,13 @@ test("root guard: a restricted-role port refuses to become the root port", async
   assert.equal(pa.state(), "forwarding");
 });
 
-test("dispute mechanism: a designated port over a one-way link is held blocking", async () => {
+test("dispute mechanism: a port coming up on a one-way link is held blocking", async () => {
   const mstp = await loadMSTPD();
-  // Superior bridge a, inferior bridge b, joined by a unidirectional link: b's
-  // BPDUs reach a, but a's never reach b. b never hears a superior, so it stays
-  // root and forwards (setting the Learning flag). a sees an inferior
-  // designated BPDU that still claims to be learning and records a dispute,
-  // which keeps its own designated port discarding so the pair cannot form a
-  // loop.
+  // Superior bridge a, inferior bridge b, joined by a unidirectional link from
+  // the start: b's BPDUs reach a, but a's never reach b. b hears nothing at
+  // all, so it turns its port into an edge and forwards. a sees an inferior
+  // designated BPDU and records a dispute, which keeps its own designated port
+  // discarding so the pair cannot form a loop.
   const a = mstp.createBridge("a", { priority: 4096 });
   const b = mstp.createBridge("b", { priority: 8192 });
   const pa = a.addPort("a1", { portno: 1 });
@@ -711,15 +710,73 @@ test("dispute mechanism: a designated port over a one-way link is held blocking"
   for (const o of [a, b, pa, pb]) o.enable();
   mstp.step(CONVERGE);
 
-  // a detects the dispute and refuses to forward despite being designated.
+  // The disputed flag stays set here: a's port is already discarding, so the
+  // transition that would clear it never runs again.
   assert.equal(pa.status().disputed, true, "a records the dispute");
   assert.equal(pa.role(), "Designated");
   assert.equal(pa.state(), "blocking", "the disputed port is held discarding");
 
-  // b, hearing nothing back, believes it is the root and forwards unguarded.
+  // b gets no BPDU at all, so it stays root and forwards.
   assert.equal(byName(mstp.topology(), "b").is_root, true);
+  assert.equal(pb.status().oper_edge, true, "no BPDU ever reached b");
   assert.equal(pb.status().disputed, false);
   assert.equal(pb.state(), "forwarding");
+});
+
+test("dispute mechanism: a one-way fault after convergence stops the loop", async () => {
+  const mstp = await loadMSTPD();
+  // The link works first and the pair converges. Only then does a stop
+  // transmitting. b has been getting BPDUs, so it is not an edge port.
+  const a = mstp.createBridge("a", { priority: 4096 });
+  const b = mstp.createBridge("b", { priority: 8192 });
+  const pa = a.addPort("a1", { portno: 1 });
+  const pb = b.addPort("b1", { portno: 1 });
+  mstp.link(pa, pb);
+  for (const o of [a, b, pa, pb]) o.enable();
+  mstp.step(CONVERGE);
+  assert.equal(pa.role(), "Designated");
+  assert.equal(pa.state(), "forwarding");
+  assert.equal(pb.role(), "Root");
+
+  mstp.linkOneWay(pb, pa); // a still receives, but cannot transmit
+
+  // After three hellos, b times out what it knows about a. It becomes root and
+  // the designated bridge on the link, and keeps forwarding.
+  mstp.step(10);
+  assert.equal(byName(mstp.topology(), "b").is_root, true);
+  assert.equal(pb.status().oper_edge, false, "b heard a until the fault");
+  assert.equal(pb.role(), "Designated");
+  assert.equal(pb.state(), "forwarding");
+  assert.equal(pa.state(), "blocking", "a stopped forwarding");
+
+  // Check the port state twice per second: after the timers run, and after b's
+  // BPDU is delivered.
+  const afterTimers = new Set();
+  const afterBpdu = new Set();
+  const rxBefore = pa.status().rx_bpdu;
+  for (let s = 0; s < CONVERGE; s++) {
+    mstp.oneSecond();
+    afterTimers.add(pa.state());
+    while (mstp.deliverBPDUs() > 0);
+    afterBpdu.add(pa.state());
+  }
+
+  // a stays designated on a link where nobody gets its BPDUs. The forward delay
+  // moves its port to learning, then each BPDU from b disputes it and puts it
+  // back to discarding. It never reaches forwarding, so there is no loop.
+  assert.equal(pa.role(), "Designated");
+  assert.ok(pa.status().rx_bpdu > rxBefore, "a still receives from b");
+  assert.ok(afterTimers.has("learning"), "the forward delay moves it up");
+  assert.deepEqual(
+    [...afterBpdu],
+    ["blocking"],
+    "each BPDU from b puts it back to discarding",
+  );
+  assert.ok(!afterTimers.has("forwarding"), "it never forwards again");
+
+  // The flag cannot be checked here: the port is learning or forwarding when the
+  // BPDU arrives, so the move to discarding clears it right away.
+  assert.equal(pa.status().disputed, false);
 });
 
 test("bridge assurance: a network port blocks when its neighbour goes silent", async () => {

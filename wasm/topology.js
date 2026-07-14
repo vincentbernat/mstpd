@@ -659,14 +659,9 @@ function build(w) {
       });
       pa.enable();
       pb.enable();
-      if (ld.oneway) {
-        // A one-way fault cannot be toggled.
-        mstp.linkOneWay(pa, pb);
-        link = { broken: false, toggle() {}, break() {}, restore() {} };
-      } else {
-        link = mstp.link(pa, pb);
-        if (ld.down) link.break();
-      }
+      link = mstp.link(pa, pb);
+      if (ld.oneway) mstp.linkOneWay(pa, pb);
+      else if (ld.down) link.break();
       a.ports.push(pa);
       b.ports.push(pb);
     } else {
@@ -679,7 +674,8 @@ function build(w) {
       bPort: pb,
       link,
       cost: ld.cost,
-      oneway: ld.oneway,
+      oneway: ld.oneway, // this link can have a one-way fault
+      faulty: ld.oneway, // and the fault is set right now
     });
   }
 
@@ -1160,7 +1156,7 @@ function render(w) {
       );
     }
 
-    if (e.oneway) {
+    if (e.faulty) {
       // A diode at the midpoint.
       const mx = (x1 + x2) / 2;
       const my = (y1 + y2) / 2;
@@ -1368,15 +1364,19 @@ function select(w, sel) {
   renderPanel(w);
 }
 
-// Cutting a link takes down whatever is on it: the core drops the frames it had
-// queued there, so their pills go too. The bridges react at once, without
-// waiting for the next second, so put the BPDUs they answer with on the wire
-// now: that is where reconvergence starts.
+// Cutting a cable takes down whatever is on it: the core drops the frames it had
+// queued there, so their pills go too.
 function toggleLink(w, e) {
-  if (e.oneway) return; // a one-way fault cannot be toggled
-  e.link.toggle();
-  w.flights = w.flights.filter((f) => f.link !== e);
-  emitWave(w, w.wave ? w.wave.gen : 0);
+  if (e.oneway) {
+    // Specific case for a one way link, we toggle the faulty state.
+    e.faulty = !e.faulty;
+    if (e.faulty) w.mstp.linkOneWay(e.aPort, e.bPort);
+    else w.mstp.link(e.aPort, e.bPort);
+  } else {
+    e.link.toggle();
+    w.flights = w.flights.filter((f) => f.link !== e);
+    emitWave(w, w.wave ? w.wave.gen : 0);
+  }
   markAction(w);
   select(w, { type: "link", ref: e });
 }
@@ -1422,21 +1422,24 @@ function renderPanel(w) {
     const pb = shown(e.b, snap.ports.get(e.bPort.handle));
     const broken = e.link.broken;
     const head = h("h3", {
-      text: `Link ${e.a.name} ${e.oneway ? "→" : "–"} ${e.b.name} `,
+      text: `Link ${e.a.name} ${e.faulty ? "→" : "–"} ${e.b.name} `,
     });
-    if (e.oneway) head.appendChild(badge("ONE-WAY", "#d90"));
+    if (e.faulty) head.appendChild(badge("ONE-WAY", "#d90"));
     else if (broken) head.appendChild(badge("CUT", "#e55"));
     panel.appendChild(head);
-    if (!e.oneway)
-      panel.appendChild(
-        h("button", {
-          class: "mstp-btn mstp-toggle" + (broken ? " mstp-active" : ""),
-          html:
-            `<span>${icon("✂️")}Cut link</span>` +
+    panel.appendChild(
+      h("button", {
+        class:
+          "mstp-btn mstp-toggle" +
+          ((e.oneway ? e.faulty : broken) ? " mstp-active" : ""),
+        html: e.oneway
+          ? `<span>${icon("✂️")}Break one way</span>` +
+            `<span>${icon("🔗")}Repair link</span>`
+          : `<span>${icon("✂️")}Cut link</span>` +
             `<span>${icon("🔗")}Restore link</span>`,
-          onclick: () => toggleLink(w, e),
-        }),
-      );
+        onclick: () => toggleLink(w, e),
+      }),
+    );
     // Both ends of a cable have the same cost, so take it from whichever of them
     // runs the protocol.
     const known = pa || pb;
@@ -1460,9 +1463,12 @@ function renderPanel(w) {
     panel.appendChild(
       h("p", {
         class: "mstp-hint",
-        text: e.oneway
-          ? "A one-way link: BPDUs travel one direction only."
-          : "Double-click a link to cut it.",
+        text: !e.oneway
+          ? "Double-click a link to cut it."
+          : e.faulty
+            ? `A one-way fault: ${e.b.name} receives but never transmits. ` +
+              "Double-click the link to mend it."
+            : `Double-click the link to break ${e.b.name}'s transmitter.`,
       }),
     );
     return;
