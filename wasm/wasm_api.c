@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * wasm_api.c - WebAssembly harness around the mstpd MSTP core.
+ * wasm_api.c - WebAssembly harness around MSTPD core.
  *
  * This file replaces the Linux netlink/kernel gluewith a self-contained,
  * deterministic environment suitable for running inside WebAssembly:

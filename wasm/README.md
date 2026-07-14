@@ -1,6 +1,6 @@
-# mstpd for WebAssembly
+# MSTPD for WebAssembly
 
-This directory builds the mstpd MSTP/RSTP/STP state-machine core (`mstp.c`) as a
+This directory builds the MSTP/RSTP/STP state-machine core (`mstp.c`) as a
 WebAssembly module so that spanning-tree **bridges** ("instances") can be
 created, wired together and observed entirely from JavaScript.
 

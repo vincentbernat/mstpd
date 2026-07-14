@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// JavaScript wrapper around the mstpd WebAssembly core.
+// JavaScript wrapper around the MSTPD WebAssembly core.
 //
 // This is not a standalone module: the build concatenates it onto the end of
 // the Emscripten output via --extern-post-js, so `createMstpd` (the factory

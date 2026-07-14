@@ -1,4 +1,4 @@
-# Build the mstpd MSTP core as a WebAssembly module.
+# Build MSTPD core as a WebAssembly module.
 
 EMCC ?= emcc
 

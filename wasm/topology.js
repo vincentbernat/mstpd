@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Turn a <pre> block describing a topology into an interactive spanning-tree
-// simulation, powered by the mstpd WebAssembly core. Write your topologies
+// simulation, powered by the MSTPD WebAssembly core. Write your topologies
 // inside <pre class="mstp-topology"> blocks, and they are replaced in place by
 // a live, clickable diagram.
 //
@@ -23,7 +23,7 @@
 //
 // Endpoint flags: edge, network, bpdu-guard, root-guard, no-p2p
 //
-// The mstpd core is loaded via its own <script> tag (above), which publishes
+// The MSTPD core is loaded via its own <script> tag (above), which publishes
 // window.mstpd; this module picks loadMstpd off it rather than importing. We
 // could instead import it:
 //
@@ -969,7 +969,7 @@ function snapshot(w) {
 const isDown = (ps) => !!ps && ps.role === "Disabled";
 
 // The core reports RSTP/MSTP's discarding state as the kernel's "blocking"
-// (mstpd maps it onto BR_STATE_BLOCKING). Show the RSTP name when appropriate.
+// (MSTPD maps it onto BR_STATE_BLOCKING). Show the RSTP name when appropriate.
 function stateLabel(w, state) {
   const p = w.model.directives.protocol;
   if (state === "blocking" && (p === "rstp" || p === "mstp"))
