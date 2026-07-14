@@ -15,16 +15,12 @@
         color-scheme: light dark;
       }
       h1 {
-        font-size: 2rem;
-      }
-      h2 {
         font-size: 1.4rem;
       }
     </style>
   </head>
   <body>
-    <h1>mstpd topology snippets</h1>
-    <h2>A ring with a redundant diagonal</h2>
+    <h1>A ring with a redundant diagonal</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -41,7 +37,7 @@ B -- C  cost=100
 </pre
     >
 
-    <h2>Multiple links between two nodes</h2>
+    <h1>Multiple links between two nodes</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -54,7 +50,7 @@ A -- B
 </pre
     >
 
-    <h2>Classic STP is slow</h2>
+    <h1>Classic STP is slow</h2>
     <pre class="mstp-topology">
 :protocol stp
 :forward-delay 4
@@ -72,7 +68,7 @@ X -- Y
 </pre
     >
 
-    <h2>Edge ports skip the wait</h2>
+    <h1>Edge ports skip the wait</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -85,7 +81,7 @@ S -- H2  H2:edge
 </pre
     >
 
-    <h2>Shared media brings back learning</h2>
+    <h1>Shared media brings back learning</h2>
     <pre class="mstp-topology">
 :protocol rstp
 :forward-delay 4
@@ -97,7 +93,7 @@ R -- A  R:no-p2p A:no-p2p
 </pre
     >
 
-    <h2>Root guard fences off a rogue</h2>
+    <h1>Root guard fences off a rogue</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -110,7 +106,7 @@ Access -- Rogue  Access:root-guard
 </pre
     >
 
-    <h2>BPDU guard shuts down a rogue</h2>
+    <h1>BPDU guard shuts down a rogue</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -121,7 +117,7 @@ Access -- Rogue  Access:bpdu-guard
 </pre
     >
 
-    <h2>Talking to a legacy STP bridge</h2>
+    <h1>Talking to a legacy STP bridge</h2>
     <pre class="mstp-topology">
 :protocol rstp
 :forward-delay 4
@@ -136,7 +132,7 @@ New -- Old
 </pre
     >
 
-    <h2>Too wide for one tree</h2>
+    <h1>Too wide for one tree</h2>
     <pre class="mstp-topology">
 # With max-age set to 6, this 12-bridge has two bridges believing
 # they are root.
@@ -171,7 +167,7 @@ b10 -- b11
 </pre
     >
 
-    <h2>A loop through a switch with no STP</h2>
+    <h1>A loop through a switch with no STP</h2>
     <pre class="mstp-topology">
 # C runs no spanning tree, so it forwards nothing to A and B
 # about each other. Both ports facing it end up forwarding and
@@ -189,7 +185,7 @@ B -- C
 </pre
     >
 
-    <h2>A one-way link and dispute</h2>
+    <h1>A one-way link and dispute</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
