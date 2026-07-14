@@ -188,6 +188,26 @@ B -- C
 </pre
     >
 
+    <h1>Adversarial convergence</h2>
+    <pre class="mstp-topology">
+# Cut the R -- A cable. Each bridge keeps hearing the about a
+# root that is not present anymore. Convergence time is about
+# 10s.
+
+:protocol rstp
+
+R @1,0 prio=0
+A @1,1 prio=4096
+B @0,2 prio=8192
+C @2,2
+
+R -- A
+A -- B
+B -- C
+C -- A
+</pre
+    >
+
     <h1>A one-way link and dispute</h2>
     <pre class="mstp-topology">
 :protocol rstp
