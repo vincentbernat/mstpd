@@ -13,7 +13,6 @@
 
   font-family: system-ui, sans-serif;
   border: 1px solid var(--line);
-  margin: 1rem 0;
   overflow: hidden;
   container-type: inline-size;
 
@@ -110,6 +109,24 @@
     animation: mstp-bump 1s ease-out;
   }
 
+  .mstp-detach {
+    display: inline-grid;
+    place-items: center;
+    aspect-ratio: 1;
+    padding: 0.2rem;
+    line-height: 1;
+    border: 0;
+    background: none;
+    .mstp-icon {
+      margin: 0;
+    }
+    @media (prefers-color-scheme: dark) {
+      .mstp-icon {
+        filter: grayscale(1) brightness(1.7);
+      }
+    }
+  }
+
   .mstp-slow {
     display: inline-flex;
     align-items: center;
@@ -200,7 +217,8 @@
     .mstp-clock-c:not(:empty)::before {
       content: none;
     }
-    .mstp-icon {
+    .mstp-icon,
+    .mstp-detach {
       display: none;
     }
   }
@@ -309,6 +327,42 @@
     font-size: 0.82rem;
     color: #e55;
     font-family: var(--mono);
+  }
+
+  /* Detached: a sticky floating card. */
+  &.mstp-detached {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 1000;
+    font-size: 0.8rem;
+    width: min(38em, 100vw);
+    max-height: 100vh;
+    overflow: auto;
+    background: Canvas;
+    box-shadow: 0 0.5rem 1.75rem #0006;
+
+    .mstp-detach {
+      display: inline-block;
+      .mstp-icon {
+        display: inline;
+      }
+    }
+
+    .mstp-bar {
+      cursor: move;
+    }
+  }
+}
+
+.mstp-host {
+  margin: 1rem 0;
+
+  /* Empty space when detached */
+  &.mstp-vacated {
+    display: block;
+    border: 1px dashed #8886;
+    background: repeating-linear-gradient(45deg, #8881 0 8px, #8883 8px 16px);
   }
 }
 

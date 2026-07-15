@@ -237,6 +237,9 @@ function h(tag, opts = {}, ...kids) {
 // The trailing space lives inside, so it goes away with the icon.
 const icon = (e) => `<i class="mstp-icon">${e} </i>`;
 
+// Same as icon() but without the trailing space, for icon-only buttons.
+const squareIcon = (e) => `<i class="mstp-icon">${e}</i>`;
+
 // Hello time is left out: the core only accepts 2 seconds.
 const timersOf = (d) => ({
   forwardDelay: d.forwardDelay,
@@ -303,6 +306,7 @@ async function mount(el) {
     class: "mstp-btn",
     html: `${icon("🗑️")}Discard`,
   });
+  const detachBtn = h("button", { class: "mstp-btn mstp-detach" });
   runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { text: "t=0s" });
@@ -335,6 +339,7 @@ async function mount(el) {
     discardBtn,
     clock,
     slow,
+    detachBtn,
   );
 
   const stage = h("div", { class: "mstp-stage" });
@@ -367,6 +372,10 @@ async function mount(el) {
   const w = {
     model,
     source,
+    root,
+    host,
+    bar,
+    detachBtn,
     svg,
     panel: panelBody,
     stage,
@@ -431,6 +440,10 @@ async function mount(el) {
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
   discardBtn.onclick = () => exitEdit(w);
+  detachBtn.onclick = () =>
+    setDetached(w, !w.root.classList.contains("mstp-detached"));
+  bar.addEventListener("pointerdown", (ev) => startDrag(w, ev));
+  setDetached(w, false);
   slowBox.onchange = () => {
     w.speed = slowBox.checked ? SLOW_FACTOR : 1;
   };
@@ -449,6 +462,76 @@ async function mount(el) {
     build(w);
   }
   return w;
+}
+
+// -- detach ---------------------------------------------------------
+
+// Only one widget floats in the corner at a time.
+let detachedWidget = null;
+
+// Detach a widget to a sticky floating card in the top-right corner, or put it
+// back where it belongs. While detached, the host keeps its measured height so
+// the space in the page stays the same. Detaching one widget re-attaches any
+// other one already floating.
+function setDetached(w, on) {
+  if (on) {
+    if (detachedWidget && detachedWidget !== w)
+      setDetached(detachedWidget, false);
+    w.host.style.height = `${w.host.getBoundingClientRect().height}px`;
+    w.host.classList.add("mstp-vacated");
+    w.root.classList.add("mstp-detached");
+    w.detachBtn.innerHTML = squareIcon("✖️");
+    w.detachBtn.title = "Put the widget back";
+    detachedWidget = w;
+  } else {
+    w.root.classList.remove("mstp-detached");
+    w.host.classList.remove("mstp-vacated");
+    w.host.style.height = "";
+    // Drop any dragged position so a later detach starts back in the corner.
+    w.root.style.left = w.root.style.top = w.root.style.right = "";
+    w.detachBtn.innerHTML = squareIcon("📌");
+    w.detachBtn.title = "Detach to a floating corner";
+    if (detachedWidget === w) detachedWidget = null;
+  }
+}
+
+// Reattach the widget if the window is resized.
+window.addEventListener("resize", () => {
+  if (detachedWidget) setDetached(detachedWidget, false);
+});
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Drag the floating card around by its bar when detached. The card stays inside
+// the window.
+function startDrag(w, ev) {
+  if (!w.root.classList.contains("mstp-detached")) return;
+  if (ev.target.closest("button, input, label")) return;
+  ev.preventDefault();
+  const rect = w.root.getBoundingClientRect();
+  const dx = ev.clientX - rect.left;
+  const dy = ev.clientY - rect.top;
+  w.root.style.left = `${rect.left}px`;
+  w.root.style.top = `${rect.top}px`;
+  w.root.style.right = "auto";
+
+  const move = (e) => {
+    const x = clamp(e.clientX - dx, 0, window.innerWidth - w.root.offsetWidth);
+    const y = clamp(
+      e.clientY - dy,
+      0,
+      window.innerHeight - w.root.offsetHeight,
+    );
+    w.root.style.left = `${x}px`;
+    w.root.style.top = `${y}px`;
+  };
+  const up = () => {
+    w.bar.removeEventListener("pointermove", move);
+    w.bar.removeEventListener("pointerup", up);
+  };
+  w.bar.setPointerCapture(ev.pointerId);
+  w.bar.addEventListener("pointermove", move);
+  w.bar.addEventListener("pointerup", up);
 }
 
 // -- layout ---------------------------------------------------------
