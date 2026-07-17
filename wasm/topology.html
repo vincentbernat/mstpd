@@ -70,19 +70,6 @@ X -- Y
 </pre
     >
 
-    <h1>Edge ports skip the wait</h1>
-    <pre class="mstp-topology">
-:protocol rstp
-
-S  @1,0  prio=4096
-H1 @0,2  icon=💻
-H2 @2,2  icon=💻
-
-S -- H1  H1:edge
-S -- H2  H2:edge
-</pre
-    >
-
     <h1>Shared media brings back learning</h1>
     <pre class="mstp-topology">
 :protocol rstp
@@ -96,7 +83,7 @@ R -- A  R:no-p2p A:no-p2p
 </pre
     >
 
-    <h1>Root guard fences off a rogue</h1>
+    <h1>Root guard protects from a rogue</h1>
     <pre class="mstp-topology">
 :protocol rstp
 
