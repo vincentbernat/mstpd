@@ -11,6 +11,7 @@
   --accent-fill-hover: #2a75;
   --mono: ui-monospace, monospace;
 
+  font-size: 1rem;
   font-family: system-ui, sans-serif;
   border: 1px solid var(--line);
   overflow: hidden;
@@ -23,15 +24,15 @@
   .mstp-bar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.6rem;
+    gap: 0.5em;
+    padding: 0.4em 0.6em;
     border-bottom: 1px solid var(--line);
     background: var(--fill);
   }
 
   .mstp-btn {
     font: inherit;
-    padding: 0.2rem 0.4rem;
+    padding: 0.2em 0.4em;
     border-radius: 5px;
     border: 1px solid var(--btn-line);
     background: var(--fill);
@@ -113,7 +114,7 @@
     display: inline-grid;
     place-items: center;
     aspect-ratio: 1;
-    padding: 0.2rem;
+    padding: 0.2em;
     line-height: 1;
     border: 0;
     background: none;
@@ -130,7 +131,7 @@
   .mstp-slow {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.25em;
     cursor: pointer;
     user-select: none;
   }
@@ -171,17 +172,17 @@
     position: absolute;
     inset: 0;
     overflow: auto;
-    padding: 0.6rem 0.8rem;
+    padding: 0.6em 0.8em;
 
     h3 {
-      font-size: 0.95rem;
-      margin: 0 0 0.5rem;
+      font-size: 0.95em;
+      margin: 0 0 0.5em;
     }
   }
 
   /* Stacked below the canvas: the panel takes its natural height again, and its
      left border becomes a top border. */
-  @container (max-width: 38em) {
+  @container (max-width: 40em) {
     .mstp-stage {
       flex-direction: column;
     }
@@ -205,7 +206,7 @@
 
     /* Stack the clock and shrink it. */
     .mstp-clock {
-      font-size: 0.7rem;
+      font-size: 0.7em;
       line-height: 1.15;
     }
     .mstp-clock-t,
@@ -225,25 +226,25 @@
 
   .mstp-hint {
     opacity: 0.65;
-    font-size: 0.82rem;
-    margin: 0.6rem 0 0;
+    font-size: 0.82em;
+    margin: 0.6em 0 0;
   }
 
   .mstp-btn.mstp-pcap {
     display: block;
-    margin-top: 0.6rem;
+    margin-top: 0.6em;
   }
 
   .mstp-kv,
   .mstp-ports {
     border-collapse: collapse;
     width: 100%;
-    font-size: 0.84rem;
+    font-size: 0.86em;
 
     th,
     td {
       text-align: left;
-      padding: 0.18rem 0;
+      padding: 0.18em 0;
       border-bottom: 1px solid var(--line-soft);
       vertical-align: top;
     }
@@ -258,7 +259,7 @@
   }
 
   .mstp-ports {
-    margin: 0.6rem 0;
+    margin: 0.6em 0;
   }
 
   /* Role/state text on the left, the three-dot toggle pushed to the right. The
@@ -266,7 +267,7 @@
   .mstp-rs {
     display: flex;
     align-items: baseline;
-    gap: 0.4rem;
+    gap: 0.4em;
 
     span {
       white-space: nowrap;
@@ -281,7 +282,7 @@
     line-height: 1;
     border: 0;
     border-radius: 4px;
-    padding: 0 0.25rem;
+    padding: 0 0.25em;
     background: none;
     color: inherit;
     cursor: pointer;
@@ -298,15 +299,12 @@
 
   /* The folded-out details sit under the port row. */
   .mstp-port-detail-cell {
-    padding: 0.1rem 0.3rem 0.4rem 0.9rem;
+    padding: 0.1em 0.3em 0.4em 0.9em;
 
-    .mstp-kv {
-      font-size: 0.8rem;
-    }
     .mstp-kv th,
     .mstp-kv td {
       border-bottom: 0;
-      padding: 0.1rem;
+      padding: 0.1em;
     }
     .mstp-kv th {
       width: 1%;
@@ -324,9 +322,9 @@
   }
 
   .mstp-badge {
-    font-size: 0.68rem;
+    font-size: 0.68em;
     border-radius: 4px;
-    padding: 0.05rem 0.4rem;
+    padding: 0.05em 0.4em;
     color: #fff;
     vertical-align: 1px;
   }
@@ -335,19 +333,19 @@
     flex: 1 0 100%;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.2rem 0.8rem;
-    padding: 0.35rem 0.7rem;
+    gap: 0.2em 0.8em;
+    padding: 0.35em 0.7em;
     border-top: 1px solid var(--line);
-    font-size: 0.78rem;
+    font-size: 0.85em;
     opacity: 0.8;
 
     i {
       display: inline-block;
-      width: 0.7rem;
-      height: 0.7rem;
+      width: 0.7em;
+      height: 0.7em;
       border-radius: 2px;
       vertical-align: -1px;
-      margin-right: 0.3rem;
+      margin-right: 0.3em;
     }
     .mstp-dot {
       border-radius: 50%;
@@ -363,18 +361,18 @@
     flex-wrap: wrap;
     min-width: 0;
     align-items: center;
-    gap: 0.2rem 0.5rem;
+    gap: 0.2em 0.5em;
   }
 
   .mstp-editor {
-    padding: 0.6rem 0.7rem;
+    padding: 0.6em 0.7em;
 
     .mstp-edit-area {
       width: 100%;
-      min-height: 15rem;
+      min-height: 15em;
       resize: vertical;
       font-family: var(--mono);
-      padding: 0.5rem 0.6rem;
+      padding: 0.5em 0.6em;
       border: 1px solid var(--line);
       background: var(--fill);
       color: inherit;
@@ -383,9 +381,9 @@
   }
 
   .mstp-errors {
-    padding: 0.5rem 0.8rem;
+    padding: 0.5em 0.8em;
     border-top: 1px solid var(--line);
-    font-size: 0.82rem;
+    font-size: 0.82em;
     color: #e55;
     font-family: var(--mono);
   }
@@ -397,11 +395,11 @@
     right: 0;
     z-index: 1000;
     font-size: 0.8rem;
-    width: min(38em, 100vw);
+    width: min(40em, 100vw);
     max-height: 100vh;
     overflow: auto;
     background: Canvas;
-    box-shadow: 0 0.5rem 1.75rem #0006;
+    box-shadow: 0 0.5em 1.75em #0006;
 
     .mstp-detach {
       display: inline-block;
