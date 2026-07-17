@@ -250,6 +250,11 @@
     td {
       font-variant-numeric: tabular-nums;
     }
+    /* No divider under the last row. */
+    tr:last-child > th,
+    tr:last-child > td {
+      border-bottom: 0;
+    }
   }
 
   .mstp-ports {
