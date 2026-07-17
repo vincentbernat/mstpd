@@ -1538,19 +1538,6 @@ function renderPanel(w) {
     if (e.faulty) head.appendChild(badge("ONE-WAY", "#d90"));
     else if (broken) head.appendChild(badge("CUT", "#e55"));
     panel.appendChild(head);
-    panel.appendChild(
-      h("button", {
-        class:
-          "mstp-btn mstp-toggle" +
-          ((e.oneway ? e.faulty : broken) ? " mstp-active" : ""),
-        html: e.oneway
-          ? `<span>${icon("✂️")}Break one way</span>` +
-            `<span>${icon("🔗")}Repair link</span>`
-          : `<span>${icon("✂️")}Cut link</span>` +
-            `<span>${icon("🔗")}Restore link</span>`,
-        onclick: () => toggleLink(w, e),
-      }),
-    );
     // Both ends of a cable have the same cost, so take it from whichever of them
     // runs the protocol.
     const known = pa || pb;
@@ -1579,6 +1566,19 @@ function renderPanel(w) {
           rapid: isRapid(e.b),
         },
       ]),
+    );
+    panel.appendChild(
+      h("button", {
+        class:
+          "mstp-btn mstp-toggle" +
+          ((e.oneway ? e.faulty : broken) ? " mstp-active" : ""),
+        html: e.oneway
+          ? `<span>${icon("✂️")}Break one way</span>` +
+            `<span>${icon("🔗")}Repair link</span>`
+          : `<span>${icon("✂️")}Cut link</span>` +
+            `<span>${icon("🔗")}Restore link</span>`,
+        onclick: () => toggleLink(w, e),
+      }),
     );
     if (w.mstp && e.aPort)
       panel.appendChild(pcapButton(w, `${e.a.name}-${e.b.name}.pcap`, e.aPort));

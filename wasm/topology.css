@@ -258,7 +258,7 @@
   }
 
   .mstp-ports {
-    margin-top: 0.6rem;
+    margin: 0.6rem 0;
   }
 
   /* Role/state text on the left, the three-dot toggle pushed to the right. The
