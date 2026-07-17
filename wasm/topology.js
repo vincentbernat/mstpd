@@ -1554,17 +1554,32 @@ function renderPanel(w) {
     // Both ends of a cable have the same cost, so take it from whichever of them
     // runs the protocol.
     const known = pa || pb;
-    const rows = [
-      [`${e.a.name} port`, roleState(w, pa), colorFor(pa?.state)],
-      [`${e.b.name} port`, roleState(w, pb), colorFor(pb?.state)],
-      [
-        "cost",
-        e.cost != null
-          ? e.cost
-          : `auto (${known ? known.external_path_cost : "?"})`,
-      ],
-    ];
-    panel.appendChild(kvTable(rows));
+    panel.appendChild(
+      kvTable([
+        [
+          "cost",
+          e.cost != null
+            ? e.cost
+            : `auto (${known ? known.external_path_cost : "?"})`,
+        ],
+      ]),
+    );
+    panel.appendChild(
+      portsTable(w, [
+        {
+          port: e.aPort,
+          ps: pa,
+          label: e.a.name,
+          rapid: isRapid(e.a),
+        },
+        {
+          port: e.bPort,
+          ps: pb,
+          label: e.b.name,
+          rapid: isRapid(e.b),
+        },
+      ]),
+    );
     if (w.mstp && e.aPort)
       panel.appendChild(pcapButton(w, `${e.a.name}-${e.b.name}.pcap`, e.aPort));
     panel.appendChild(
@@ -1600,17 +1615,26 @@ function renderPanel(w) {
       ]),
     );
 
-  const tbl = h("table", { class: "mstp-ports" });
-  const rows = n.ports.map((port) => ({
+  const entries = n.ports.map((port) => ({
     port,
     ps: shown(n, snap.ports.get(port.handle)),
+    label: peerLabel(w, port, n),
+    rapid: isRapid(n),
   }));
-  // Only ports that carry a role and state have details to fold out.
-  const detailed = rows.filter((r) => r.ps);
-  const rapid =
-    b && (b.protocol_version === "rstp" || b.protocol_version === "mstp");
+  panel.appendChild(portsTable(w, entries));
+}
+
+// A bridge whose protocol makes the rapid transitions and handshake happen.
+const isRapid = (node) => node.protocol === "rstp" || node.protocol === "mstp";
+
+// The port table shown in both the node and link panels: a "port" / "role /
+// state" grid where each row folds out its flag and state details. Each entry
+// is { port, ps, label, rapid }. ps is null for a port with no role to show.
+function portsTable(w, entries) {
+  const tbl = h("table", { class: "mstp-ports" });
+  const detailed = entries.filter((e) => e.ps);
   const allOpen =
-    detailed.length > 0 && detailed.every((r) => w.flagsOpen.has(r.port.name));
+    detailed.length > 0 && detailed.every((e) => w.flagsOpen.has(e.port.name));
 
   const hcell = h(
     "div",
@@ -1620,9 +1644,9 @@ function renderPanel(w) {
   if (detailed.length)
     hcell.appendChild(
       flagsDots(allOpen, () => {
-        for (const r of detailed)
-          if (allOpen) w.flagsOpen.delete(r.port.name);
-          else w.flagsOpen.add(r.port.name);
+        for (const e of detailed)
+          if (allOpen) w.flagsOpen.delete(e.port.name);
+          else w.flagsOpen.add(e.port.name);
         renderPanel(w);
       }),
     );
@@ -1631,9 +1655,9 @@ function renderPanel(w) {
   );
 
   const body = h("tbody");
-  for (const { port, ps } of rows) {
+  for (const { port, ps, label, rapid } of entries) {
     const tr = h("tr");
-    tr.appendChild(h("td", { text: peerLabel(w, port, n) }));
+    tr.appendChild(h("td", { text: label }));
     const cell = h("div", { class: "mstp-rs" });
     const rs = h("span", { text: roleState(w, ps) });
     rs.style.color = colorFor(ps?.state);
@@ -1660,7 +1684,7 @@ function renderPanel(w) {
     }
   }
   tbl.appendChild(body);
-  panel.appendChild(tbl);
+  return tbl;
 }
 
 // A three-dot toggle that folds a port's flag/state details in and out.
