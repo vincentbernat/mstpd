@@ -647,6 +647,98 @@ test("no-p2p link stays learning a whole second at a time", async () => {
   assert.ok(!fast.has("learning"), "a p2p handshake skips visible learning");
 });
 
+test("handshake flags", async () => {
+  // The CIST per-port status carries seven RSTP handshake variables. This walks
+  // a couple of topologies wave by wave and records, for each variable, the set
+  // of values it is ever seen holding across all ports. Only four of them
+  // actually move: proposing, agree, agreed and synced. The other three
+  // (proposed, sync and re_root) are set and cleared inside a single
+  // run-to-fixpoint, so a snapshot taken between waves never catches them set.
+  const VARS = [
+    "proposing",
+    "proposed",
+    "agree",
+    "agreed",
+    "sync",
+    "synced",
+    "re_root",
+  ];
+  const seen = {};
+  for (const v of VARS) seen[v] = new Set();
+
+  const sampleAllPorts = (mstp) => {
+    for (const p of mstp.topology().bridges.flatMap((b) => b.ports))
+      for (const v of VARS) seen[v].add(p[v] ? 1 : 0);
+  };
+  // Sample once, then run each second wave by wave, sampling after the timers
+  // tick and after every delivery generation.
+  const watch = (mstp) => {
+    sampleAllPorts(mstp);
+    for (let s = 0; s < CONVERGE; s++) {
+      mstp.oneSecond();
+      sampleAllPorts(mstp);
+      while (mstp.deliverBPDUs() > 0) sampleAllPorts(mstp);
+    }
+  };
+
+  // A no-p2p link disables the fast agreement, so a designated port stays
+  // proposing (proposing 1) and un-synced (synced 0) while the forward-delay
+  // timer runs, and only reaches synced/agreed once it forwards.
+  {
+    const mstp = await loadMSTPD();
+    const a = mstp.createBridge("a", { priority: 4096 });
+    const b = mstp.createBridge("b", { priority: 8192 });
+    for (const br of [a, b]) br.setTimes({ forwardDelay: 4, maxAge: 6 });
+    const pa = a.addPort("a1", { portno: 1, p2p: false });
+    const pb = b.addPort("b1", { portno: 1, p2p: false });
+    mstp.link(pa, pb);
+    for (const o of [a, b, pa, pb]) o.enable();
+    watch(mstp);
+  }
+
+  // A superior root arriving after convergence makes the hub give up the root
+  // and re-sync all its designated ports at once. That mass re-sync spans
+  // several waves, so a port that used to agree is caught not agreeing (agree 0)
+  // before it agrees again to the new root.
+  {
+    const mstp = await loadMSTPD();
+    const m = mstp.createBridge("m", { priority: 4096 });
+    const leaves = [];
+    for (let i = 0; i < 3; i++) {
+      const l = mstp.createBridge("l" + i, { priority: 8192 + i * 4096 });
+      const mp = m.addPort("m" + i, { portno: i + 1 });
+      const lp = l.addPort("l" + i, { portno: 1 });
+      mstp.link(mp, lp);
+      leaves.push({ l, lp });
+    }
+    m.enable();
+    for (const { l, lp } of leaves) {
+      l.enable();
+      lp.enable();
+    }
+    mstp.step(CONVERGE);
+
+    const s = mstp.createBridge("s", { priority: 0 });
+    const s1 = s.addPort("s1", { portno: 1 });
+    const ms = m.addPort("m-s", { portno: 9 });
+    mstp.link(s1, ms);
+    for (const o of [s, s1, ms]) o.enable();
+    watch(mstp);
+  }
+
+  // The four settled flags each take both values...
+  for (const v of ["proposing", "agree", "agreed", "synced"])
+    assert.deepEqual(
+      [...seen[v]].sort(),
+      [0, 1],
+      `${v} changes between 0 and 1`,
+    );
+
+  // ...while the transient three are never caught set between waves.
+  for (const v of ["proposed", "sync", "re_root"])
+    assert.deepEqual([...seen[v]].sort(), [0], `${v} is never observable set`);
+});
+
 test("bpdu guard: a guarded port receiving a BPDU goes down", async () => {
   const mstp = await loadMSTPD();
   mstp.setLogLevel(0); // the guard trip logs an expected error
