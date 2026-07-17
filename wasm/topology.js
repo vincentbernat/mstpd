@@ -398,6 +398,7 @@ async function mount(el) {
     nodes: [],
     links: [],
     selected: null,
+    flagsOpen: new Set(), // ports whose flag/state details are unfolded, by name
     editing: false,
     timerError: false, // the core refused the timers
     time: 0,
@@ -1563,10 +1564,6 @@ function renderPanel(w) {
           : `auto (${known ? known.external_path_cost : "?"})`,
       ],
     ];
-    const na = portFlags(pa);
-    const nb = portFlags(pb);
-    if (na) rows.push([`${e.a.name} flags`, na]);
-    if (nb) rows.push([`${e.b.name} flags`, nb]);
     panel.appendChild(kvTable(rows));
     if (w.mstp && e.aPort)
       panel.appendChild(pcapButton(w, `${e.a.name}-${e.b.name}.pcap`, e.aPort));
@@ -1604,33 +1601,137 @@ function renderPanel(w) {
     );
 
   const tbl = h("table", { class: "mstp-ports" });
-  tbl.innerHTML = "<thead><tr><th>port</th><th>role / state</th></tr></thead>";
+  const rows = n.ports.map((port) => ({
+    port,
+    ps: shown(n, snap.ports.get(port.handle)),
+  }));
+  // Only ports that carry a role and state have details to fold out.
+  const detailed = rows.filter((r) => r.ps);
+  const rapid =
+    b && (b.protocol_version === "rstp" || b.protocol_version === "mstp");
+  const allOpen =
+    detailed.length > 0 && detailed.every((r) => w.flagsOpen.has(r.port.name));
+
+  const hcell = h(
+    "div",
+    { class: "mstp-rs" },
+    h("span", { text: "role / state" }),
+  );
+  if (detailed.length)
+    hcell.appendChild(
+      flagsDots(allOpen, () => {
+        for (const r of detailed)
+          if (allOpen) w.flagsOpen.delete(r.port.name);
+          else w.flagsOpen.add(r.port.name);
+        renderPanel(w);
+      }),
+    );
+  tbl.appendChild(
+    h("thead", {}, h("tr", {}, h("th", { text: "port" }), h("th", {}, hcell))),
+  );
+
   const body = h("tbody");
-  for (const port of n.ports) {
-    const ps = shown(n, snap.ports.get(port.handle));
+  for (const { port, ps } of rows) {
     const tr = h("tr");
     tr.appendChild(h("td", { text: peerLabel(w, port, n) }));
-    const td = h("td", { text: roleState(w, ps) });
-    td.style.color = colorFor(ps?.state);
-    tr.appendChild(td);
+    const cell = h("div", { class: "mstp-rs" });
+    const rs = h("span", { text: roleState(w, ps) });
+    rs.style.color = colorFor(ps?.state);
+    cell.appendChild(rs);
+    const open = w.flagsOpen.has(port.name);
+    if (ps)
+      cell.appendChild(
+        flagsDots(open, () => {
+          if (open) w.flagsOpen.delete(port.name);
+          else w.flagsOpen.add(port.name);
+          renderPanel(w);
+        }),
+      );
+    tr.appendChild(h("td", {}, cell));
     body.appendChild(tr);
+    if (ps && open) {
+      const cont = h(
+        "td",
+        { class: "mstp-port-detail-cell" },
+        kvTable(portDetails(ps, rapid)),
+      );
+      cont.colSpan = 2;
+      body.appendChild(h("tr", { class: "mstp-port-detail" }, cont));
+    }
   }
   tbl.appendChild(body);
   panel.appendChild(tbl);
+}
+
+// A three-dot toggle that folds a port's flag/state details in and out.
+function flagsDots(open, toggle) {
+  const b = h("button", {
+    class: "mstp-dots" + (open ? " mstp-dots-open" : ""),
+    text: "⋯",
+    title: open ? "Hide port details" : "Show port details",
+  });
+  b.type = "button";
+  b.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    toggle();
+  });
+  return b;
+}
+
+// The flags and the rest of the state worth showing for one port, as kvTable
+// rows.
+function portDetails(ps, rapid) {
+  const rows = [];
+  rows.push(["port id", ps.port_id]);
+  rows.push(["link type", ps.oper_p2p ? "point-to-point" : "shared"]);
+  rows.push(["edge", edgeState(ps)]);
+  rows.push(["path cost", ps.external_path_cost]);
+
+  const flags = portFlags(ps, rapid);
+  if (flags) rows.push(["flags", flags]);
+  const hs = handshake(ps);
+  if (hs) rows.push(["handshake", hs]);
+
+  rows.push(["designated bridge", ps.designated_bridge]);
+  rows.push(["designated port", ps.designated_port]);
+  return rows;
+}
+
+// The RSTP role-transition variables that are set on the port right now.
+function handshake(ps) {
+  const notes = [];
+  if (ps.proposing) notes.push("proposing");
+  if (ps.proposed) notes.push("proposed");
+  if (ps.agree) notes.push("agree");
+  if (ps.agreed) notes.push("agreed");
+  if (ps.sync) notes.push("sync");
+  if (ps.synced) notes.push("synced");
+  if (ps.re_root) notes.push("re-root");
+  return notes.join(", ");
+}
+
+function edgeState(ps) {
+  const cfg = [];
+  if (ps.admin_edge) cfg.push("admin");
+  if (ps.auto_edge) cfg.push("auto");
+  const oper = ps.oper_edge ? "yes" : "no";
+  return cfg.length ? `${oper} (${cfg.join(", ")})` : oper;
 }
 
 function roleState(w, ps) {
   return ps ? `${ps.role} / ${stateLabel(w, ps.state)}` : "-";
 }
 
-function portFlags(ps) {
+function portFlags(ps, rapid) {
   if (!ps) return "";
   const notes = [];
+  if (ps.network_port) notes.push("network");
   if (ps.restricted_role) notes.push("root-guard");
+  if (ps.restricted_tcn) notes.push("tcn-guard");
   if (ps.bpdu_guard_port)
     notes.push(ps.bpdu_guard_error ? "bpdu-guard tripped" : "bpdu-guard");
-  if (ps.network_port) notes.push("network");
-  if (ps.oper_edge) notes.push("edge");
+  if (rapid && ps.up && !ps.send_rstp) notes.push("STP fallback");
   if (ps.disputed) notes.push("disputed");
   if (ps.ba_inconsistent) notes.push("BA inconsistent");
   return notes.join(", ");

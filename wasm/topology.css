@@ -243,7 +243,7 @@
     th,
     td {
       text-align: left;
-      padding: 0.18rem 0.3rem;
+      padding: 0.18rem 0;
       border-bottom: 1px solid var(--line-soft);
       vertical-align: top;
     }
@@ -254,6 +254,62 @@
 
   .mstp-ports {
     margin-top: 0.6rem;
+  }
+
+  /* Role/state text on the left, the three-dot toggle pushed to the right. The
+   label stays on one line, the dots take whatever room is left. */
+  .mstp-rs {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+
+    span {
+      white-space: nowrap;
+    }
+    .mstp-dots {
+      margin-left: auto;
+    }
+  }
+
+  .mstp-dots {
+    font: inherit;
+    line-height: 1;
+    border: 0;
+    border-radius: 4px;
+    padding: 0 0.25rem;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.45;
+    &:hover {
+      opacity: 0.9;
+      background: var(--fill-hover);
+    }
+    &.mstp-dots-open {
+      opacity: 0.9;
+      background: var(--fill);
+    }
+  }
+
+  /* The folded-out details sit under the port row. */
+  .mstp-port-detail-cell {
+    padding: 0.1rem 0.3rem 0.4rem 0.9rem;
+
+    .mstp-kv {
+      font-size: 0.8rem;
+    }
+    .mstp-kv th,
+    .mstp-kv td {
+      border-bottom: 0;
+      padding: 0.1rem;
+    }
+    .mstp-kv th {
+      width: 1%;
+      white-space: nowrap;
+    }
+    .mstp-kv td {
+      overflow-wrap: anywhere;
+    }
   }
 
   .mstp-kv th {

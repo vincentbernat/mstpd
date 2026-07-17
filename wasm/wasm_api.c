@@ -578,8 +578,20 @@ static void json_port(sb_t *s, int porth)
     sb_kv_bool(s, &first, "network_port", st.network_port);
     sb_kv_bool(s, &first, "ba_inconsistent", st.ba_inconsistent);
     sb_kv_bool(s, &first, "send_rstp", st.sendRSTP);
-    sb_kv_uint(s, &first, "admin_external_path_cost",
-               st.admin_external_port_path_cost);
+
+    per_tree_port_t *cist = find_ptp(prt, 0);
+    if(cist)
+    {
+        sb_kv_bool(s, &first, "proposing", cist->proposing);
+        sb_kv_bool(s, &first, "proposed", cist->proposed);
+        sb_kv_bool(s, &first, "agree", cist->agree);
+        sb_kv_bool(s, &first, "agreed", cist->agreed);
+        sb_kv_bool(s, &first, "sync", cist->sync);
+        sb_kv_bool(s, &first, "synced", cist->synced);
+        sb_kv_bool(s, &first, "re_root", cist->reRoot);
+    }
+
+    sb_kv_uint(s, &first, "admin_external_path_cost", st.admin_external_port_path_cost);
     sb_kv_uint(s, &first, "external_path_cost", st.external_port_path_cost);
     sb_kv_uint(s, &first, "internal_path_cost", st.internal_port_path_cost);
     sb_bridge_id(s, &first, "designated_root", st.designated_root);
