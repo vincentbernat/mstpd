@@ -162,7 +162,7 @@
 
   .mstp-panel {
     position: relative;
-    flex: 0 0 18em;
+    flex: 0 0 20em;
     border-left: 1px solid var(--line);
   }
 
@@ -172,7 +172,7 @@
     position: absolute;
     inset: 0;
     overflow: auto;
-    padding: 0.6em 0.8em;
+    padding: 0.5em;
 
     h3 {
       font-size: 0.95em;
@@ -395,7 +395,7 @@
     right: 0;
     z-index: 1000;
     font-size: 0.8rem;
-    width: min(40em, 100vw);
+    max-width: 100vw;
     max-height: 100vh;
     overflow: auto;
     background: Canvas;

@@ -444,6 +444,8 @@ async function mount(el) {
   detachBtn.onclick = () =>
     setDetached(w, !w.root.classList.contains("mstp-detached"));
   bar.addEventListener("pointerdown", (ev) => startDrag(w, ev));
+  root.addEventListener("pointerdown", (ev) => startResize(w, ev), true);
+  root.addEventListener("pointermove", (ev) => updateResizeCursor(w, ev));
   setDetached(w, false);
   slowBox.onchange = () => {
     w.speed = slowBox.checked ? SLOW_FACTOR : 1;
@@ -470,7 +472,7 @@ async function mount(el) {
 // Only one widget floats in the corner at a time.
 let detachedWidget = null;
 
-// Detach a widget to a sticky floating card in the top-right corner, or put it
+// Detach a widget to a sticky floating widget in the top-right corner, or put it
 // back where it belongs. While detached, the host keeps its measured height so
 // the space in the page stays the same. Detaching one widget re-attaches any
 // other one already floating.
@@ -481,6 +483,10 @@ function setDetached(w, on) {
     w.host.style.height = `${w.host.getBoundingClientRect().height}px`;
     w.host.classList.add("mstp-vacated");
     w.root.classList.add("mstp-detached");
+    // Open past the 40em stacking breakpoint so the panel sits on the side. The
+    // breakpoint measures the content box, so clear the two 1px borders plus a
+    // pixel.
+    w.root.style.width = "calc(40em + 3px)";
     w.detachBtn.innerHTML = squareIcon("✖️");
     w.detachBtn.title = "Put the widget back";
     detachedWidget = w;
@@ -488,8 +494,10 @@ function setDetached(w, on) {
     w.root.classList.remove("mstp-detached");
     w.host.classList.remove("mstp-vacated");
     w.host.style.height = "";
-    // Drop any dragged position so a later detach starts back in the corner.
+    // Drop any dragged position and resized size so a later detach starts back
+    // in the corner at its natural size.
     w.root.style.left = w.root.style.top = w.root.style.right = "";
+    w.root.style.width = w.root.style.height = w.root.style.cursor = "";
     w.detachBtn.innerHTML = squareIcon("📌");
     w.detachBtn.title = "Detach to a floating corner";
     if (detachedWidget === w) detachedWidget = null;
@@ -503,7 +511,7 @@ window.addEventListener("resize", () => {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// Drag the floating card around by its bar when detached. The card stays inside
+// Drag the floating widget around by its bar when detached. The widget stays inside
 // the window.
 function startDrag(w, ev) {
   if (!w.root.classList.contains("mstp-detached")) return;
@@ -533,6 +541,122 @@ function startDrag(w, ev) {
   w.bar.setPointerCapture(ev.pointerId);
   w.bar.addEventListener("pointermove", move);
   w.bar.addEventListener("pointerup", up);
+}
+
+const RESIZE_EDGE = 8; // width of the grab zone along each border, in pixels
+const SNAP = 16; // a border this close to a window edge snaps flush to it
+const MIN_W = 340;
+const MIN_H = MIN_W;
+
+// Pull a border flush to a window edge when it lands within the snap zone.
+const snap = (v, edge) => (Math.abs(v - edge) <= SNAP ? edge : v);
+
+// A resize is under way, so hover should not fight the border cursor.
+let resizing = false;
+
+// Which borders the pointer sits on, within the grab zone.
+function resizeEdges(w, ev) {
+  const r = w.root.getBoundingClientRect();
+  return {
+    left: ev.clientX - r.left <= RESIZE_EDGE,
+    right: r.right - ev.clientX <= RESIZE_EDGE,
+    top: ev.clientY - r.top <= RESIZE_EDGE,
+    bottom: r.bottom - ev.clientY <= RESIZE_EDGE,
+  };
+}
+
+function edgeCursor(e) {
+  if ((e.top && e.left) || (e.bottom && e.right)) return "nwse-resize";
+  if ((e.top && e.right) || (e.bottom && e.left)) return "nesw-resize";
+  if (e.left || e.right) return "ew-resize";
+  if (e.top || e.bottom) return "ns-resize";
+  return "";
+}
+
+// Side-by-side layout: the panel body is absolutely positioned, so the widget
+// height is set by the canvas and any extra height would just be empty space.
+const sideBySide = (w) => getComputedStyle(w.panel).position === "absolute";
+
+// Show the matching resize cursor while hovering a border of the floating widget.
+function updateResizeCursor(w, ev) {
+  if (resizing) return;
+  if (!w.root.classList.contains("mstp-detached")) return;
+  const e = resizeEdges(w, ev);
+  if (sideBySide(w)) e.top = e.bottom = false;
+  w.root.style.cursor = edgeCursor(e);
+}
+
+// Resize the floating widget by dragging any border or corner. The widget stays
+// inside the window and keeps a minimum size.
+function startResize(w, ev) {
+  if (ev.button !== 0) return;
+  if (!w.root.classList.contains("mstp-detached")) return;
+  // Leave the bar's controls alone even when they sit near a border.
+  if (ev.target.closest("button, input, label, select, textarea")) return;
+  const e = resizeEdges(w, ev);
+  // With the height locked, a grab on the top or bottom border does nothing.
+  const lockH = sideBySide(w);
+  if (lockH) e.top = e.bottom = false;
+  if (!e.left && !e.right && !e.top && !e.bottom) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  const rect = w.root.getBoundingClientRect();
+  const startX = ev.clientX;
+  const startY = ev.clientY;
+  const x0 = rect.left;
+  const y0 = rect.top;
+  const x1 = rect.right;
+  const y1 = rect.bottom;
+  w.root.style.left = `${x0}px`;
+  w.root.style.top = `${y0}px`;
+  w.root.style.right = "auto";
+  w.root.style.width = `${rect.width}px`;
+  w.root.style.height = lockH ? "" : `${rect.height}px`;
+  resizing = true;
+  w.root.style.cursor = edgeCursor(e);
+
+  const move = (m) => {
+    const dx = m.clientX - startX;
+    const dy = m.clientY - startY;
+    let l = x0,
+      t = y0,
+      r = x1,
+      b = y1;
+    if (e.left) l = snap(clamp(x0 + dx, 0, x1 - MIN_W), 0);
+    if (e.right)
+      r = snap(
+        clamp(x1 + dx, x0 + MIN_W, window.innerWidth),
+        window.innerWidth,
+      );
+    w.root.style.left = `${l}px`;
+    w.root.style.width = `${r - l}px`;
+    // Lock the height to the natural size whenever the layout is side-by-side,
+    // even if widening crossed into it mid-drag, or when no vertical border is
+    // being dragged.
+    if (sideBySide(w) || (!e.top && !e.bottom)) {
+      w.root.style.top = `${y0}px`;
+      w.root.style.height = "";
+      return;
+    }
+    if (e.top) t = snap(clamp(y0 + dy, 0, y1 - MIN_H), 0);
+    if (e.bottom)
+      b = snap(
+        clamp(y1 + dy, y0 + MIN_H, window.innerHeight),
+        window.innerHeight,
+      );
+    w.root.style.top = `${t}px`;
+    w.root.style.height = `${b - t}px`;
+  };
+  const up = () => {
+    resizing = false;
+    w.root.style.cursor = "";
+    w.root.removeEventListener("pointermove", move);
+    w.root.removeEventListener("pointerup", up);
+  };
+  w.root.setPointerCapture(ev.pointerId);
+  w.root.addEventListener("pointermove", move);
+  w.root.addEventListener("pointerup", up);
 }
 
 // -- layout ---------------------------------------------------------
