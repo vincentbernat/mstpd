@@ -95,6 +95,89 @@ test("breaking the active link reconverges and restoring recovers", async () => 
   assert.equal(g.c2.state(), "blocking");
 });
 
+// R is the root, reachable only through A. A, B and C form a triangle:
+//
+//        R
+//        |
+//        A
+//       / \
+//      B---C
+//
+// Cutting R-A leaves the stale "R is reachable" vector that C holds on its
+// alternate port free to circulate around the A-B-C loop. It only wins if the
+// correcting news, "A is root", fails to overtake it. That happens here because
+// some bridge relaying "A is root" spends its whole per-second BPDU budget in
+// the reaction storm and hits its transmit-hold count, so that news stalls
+// while "R is root" keeps looping. For a few waves all three believe R is still
+// the root, each through the next, with the path cost climbing a link at a
+// time. The stale vector only clears once its message age reaches Max Age and
+// expires, and A, the best bridge left, becomes the new root.
+test("count to infinity: A, B and C briefly all believe the cut-off R is root", async () => {
+  const mstp = await loadMSTPD();
+  const mk = (name, priority) => {
+    const b = mstp.createBridge(name, { priority });
+    b.enable();
+    return b;
+  };
+  const nodes = {
+    R: mk("R", 0),
+    A: mk("A", 4096),
+    B: mk("B", 8192),
+    C: mk("C", 32768),
+  };
+  const next = { R: 1, A: 1, B: 1, C: 1 };
+  const addP = (name) => {
+    const p = nodes[name].addPort(`${name}.${next[name]}`, {
+      portno: next[name],
+    });
+    next[name]++;
+    p.enable();
+    return p;
+  };
+  const link = (a, b) => mstp.link(addP(a), addP(b));
+  const ra = link("R", "A");
+  link("A", "B");
+  link("B", "C");
+  link("C", "A");
+
+  // One UI wave: deliver a generation of frames, or run a second when the wire
+  // is empty.
+  const wave = () =>
+    mstp.queuedBPDUs(0).length ? mstp.deliverBPDUs() : mstp.oneSecond();
+  const dsgRoot = (name) =>
+    mstp.topology().bridges.find((b) => b.name === name).designated_root;
+
+  // Cut three waves into bring-up, when A's ports still have some BPDU budget
+  // left to spend but not enough to outlast the storm the cut sets off.
+  for (let i = 0; i < 3; i++) wave();
+  ra.break();
+
+  const rootId = mstp.topology().bridges.find((b) => b.name === "R").bridge_id;
+  let sawAllBelieveR = false;
+  for (let s = 0; s < 40 && !sawAllBelieveR; s++) {
+    wave();
+    sawAllBelieveR = ["A", "B", "C"].every((n) => dsgRoot(n) === rootId);
+  }
+  assert.ok(
+    sawAllBelieveR,
+    "A, B and C should all point at the unreachable R at once",
+  );
+
+  // The loop must resolve: A is the best remaining bridge, so it wins.
+  mstp.step(CONVERGE);
+  const t = mstp.topology();
+  const a = t.bridges.find((b) => b.name === "A");
+  assert.equal(a.is_root, true, "A becomes the new root");
+  assert.equal(a.root_path_cost, 0);
+  for (const n of ["B", "C"]) {
+    assert.equal(
+      t.bridges.find((b) => b.name === n).designated_root,
+      a.bridge_id,
+      `${n} settles on A as root`,
+    );
+  }
+});
+
 test("deleting a topology leaves no in-flight BPDUs to taint the next one", async () => {
   // Bridges and ports may be deleted and rebuilt on the same engine, and a
   // rebuilt topology must converge exactly like a first-ever build: nothing
