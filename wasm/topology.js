@@ -1318,6 +1318,15 @@ function snapshot(w) {
   return { topo, bridges, ports };
 }
 
+// Add the name of the bridge owning a bridge id: "8192.02:00:00:00:00:04 (E)".
+function namedBridgeId(w, snap, id) {
+  for (const n of w.nodes) {
+    const b = snap.bridges.get(n.bridge?.handle);
+    if (b && b.bridge_id === id) return `${id} (${n.name})`;
+  }
+  return id;
+}
+
 // A bridge with the spanning tree turned off. The core keeps it disabled: it
 // never transmits, and drops whatever it receives.
 const noStp = (n) => n.protocol === "none";
@@ -1807,7 +1816,7 @@ function renderPanel(w) {
       ]),
     );
     panel.appendChild(
-      portsTable(w, [
+      portsTable(w, snap, [
         {
           port: e.aPort,
           ps: pa,
@@ -1864,7 +1873,7 @@ function renderPanel(w) {
       kvTable([
         ["priority", n.prio ?? 32768],
         ["bridge id", b.bridge_id],
-        ["root", b.designated_root],
+        ["root", namedBridgeId(w, snap, b.designated_root)],
         ["cost to root", b.root_path_cost],
         ["protocol", b.protocol_version.toUpperCase()],
       ]),
@@ -1876,7 +1885,7 @@ function renderPanel(w) {
     label: peerLabel(w, port, n),
     rapid: isRapid(n),
   }));
-  panel.appendChild(portsTable(w, entries));
+  panel.appendChild(portsTable(w, snap, entries));
 }
 
 // A bridge whose protocol makes the rapid transitions and handshake happen.
@@ -1885,7 +1894,7 @@ const isRapid = (node) => node.protocol === "rstp" || node.protocol === "mstp";
 // The port table shown in both the node and link panels: a "port" / "role /
 // state" grid where each row folds out its flag and state details. Each entry
 // is { port, ps, label, rapid }. ps is null for a port with no role to show.
-function portsTable(w, entries) {
+function portsTable(w, snap, entries) {
   const tbl = h("table", { class: "mstp-ports" });
   const detailed = entries.filter((e) => e.ps);
   const allOpen =
@@ -1932,7 +1941,7 @@ function portsTable(w, entries) {
       const cont = h(
         "td",
         { class: "mstp-port-detail-cell" },
-        kvTable(portDetails(ps, rapid)),
+        kvTable(portDetails(w, snap, ps, rapid)),
       );
       cont.colSpan = 2;
       body.appendChild(h("tr", { class: "mstp-port-detail" }, cont));
@@ -1960,7 +1969,7 @@ function flagsDots(open, toggle) {
 
 // The flags and the rest of the state worth showing for one port, as kvTable
 // rows.
-function portDetails(ps, rapid) {
+function portDetails(w, snap, ps, rapid) {
   const rows = [];
   rows.push(["port id", ps.port_id]);
   rows.push(["link type", ps.oper_p2p ? "point-to-point" : "shared"]);
@@ -1972,7 +1981,10 @@ function portDetails(ps, rapid) {
   const hs = handshake(ps);
   if (hs) rows.push(["handshake", hs]);
 
-  rows.push(["designated bridge", ps.designated_bridge]);
+  rows.push([
+    "designated bridge",
+    namedBridgeId(w, snap, ps.designated_bridge),
+  ]);
   rows.push(["designated port", ps.designated_port]);
   return rows;
 }
