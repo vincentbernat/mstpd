@@ -21,7 +21,7 @@
 //   :max-hops N
 //   :tx-hold N
 //
-// Endpoint flags: edge, network, bpdu-guard, root-guard, no-p2p
+// Endpoint flags: edge, no-auto-edge, network, bpdu-guard, root-guard, no-p2p
 //
 // proto=none turns the spanning tree off on a bridge: it sends no BPDUs, drops
 // the ones it receives, and its ports have no role or state.
@@ -84,6 +84,7 @@ function parseOpts(s) {
 // facing, so auto-edge has no business turning it into an edge.
 const PORT_FLAGS = {
   edge: { edge: true },
+  "no-auto-edge": { autoEdge: false },
   network: { network: true, autoEdge: false },
   "bpdu-guard": { bpduGuard: true },
   "root-guard": { restrictedRole: true },
