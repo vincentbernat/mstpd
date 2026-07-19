@@ -24,7 +24,7 @@
   .mstp-bar {
     display: flex;
     align-items: center;
-    gap: 0.5em;
+    gap: 0.4em;
     padding: 0.4em 0.6em;
     border-bottom: 1px solid var(--line);
     background: var(--fill);
@@ -32,6 +32,7 @@
 
   .mstp-btn {
     font: inherit;
+    font-size: 0.85em;
     padding: 0.2em 0.4em;
     border-radius: 5px;
     border: 1px solid var(--btn-line);

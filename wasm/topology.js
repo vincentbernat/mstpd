@@ -286,6 +286,10 @@ async function mount(el) {
     class: "mstp-btn mstp-toggle",
     html: `<span>${icon("▶️")}Start</span><span>${icon("⏹️")}Stop</span>`,
   });
+  const backBtn = h("button", {
+    class: "mstp-btn",
+    html: `${icon("⏮️")}Back`,
+  });
   const stepBtn = h("button", {
     class: "mstp-btn",
     html: `${icon("⏭️")}Step`,
@@ -307,7 +311,11 @@ async function mount(el) {
     html: `${icon("🗑️")}Discard`,
   });
   const detachBtn = h("button", { class: "mstp-btn mstp-detach" });
-  runBtn.disabled = stepBtn.disabled = resetBtn.disabled = true;
+  runBtn.disabled =
+    backBtn.disabled =
+    stepBtn.disabled =
+    resetBtn.disabled =
+      true;
   saveBtn.hidden = discardBtn.hidden = true;
   const clockTime = h("span", { text: "t=0s" });
   const clockBpdu = h("span", { text: "0 BPDUs" });
@@ -332,6 +340,7 @@ async function mount(el) {
   );
   bar.append(
     runBtn,
+    backBtn,
     stepBtn,
     resetBtn,
     editBtn,
@@ -384,6 +393,7 @@ async function mount(el) {
     textarea,
     errBox,
     runBtn,
+    backBtn,
     stepBtn,
     resetBtn,
     editBtn,
@@ -422,6 +432,12 @@ async function mount(el) {
     flights: [], // pills flying along the links
     wave: null, // the BPDUs on the wire, and when the last of them lands
     lastSeq: 0, // the newest BPDU already turned into a pill
+    // Step back: every op applied since the build (a simulated second, a wave
+    // delivery, a link cut or restore) goes into history. The cursor is how
+    // many of them the sim currently shows; it falls behind history.length
+    // after a step back, and stepping or running moves it forward again.
+    history: [],
+    cursor: 0,
   };
 
   applyViewBox(w);
@@ -432,6 +448,7 @@ async function mount(el) {
     if (w.mstp && ev.target === svg) select(w, null);
   });
   runBtn.onclick = () => (w.running ? stopRunning(w) : setRunning(w, true));
+  backBtn.onclick = () => stepBack(w);
   stepBtn.onclick = () => stepOnce(w);
   resetBtn.onclick = () => {
     setRunning(w, false);
@@ -765,6 +782,7 @@ function enterEdit(w) {
   w.stage.hidden = w.legend.hidden = true;
   w.editor.hidden = false;
   w.runBtn.hidden =
+    w.backBtn.hidden =
     w.stepBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
@@ -779,6 +797,7 @@ function leaveEdit(w) {
   w.editor.hidden = true;
   w.stage.hidden = w.legend.hidden = false;
   w.runBtn.hidden =
+    w.backBtn.hidden =
     w.stepBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
@@ -816,6 +835,8 @@ function build(w) {
   w.flights = [];
   w.wave = null;
   w.lastSeq = 0;
+  w.history = [];
+  w.cursor = 0;
   w.svg.querySelector(".mstp-pills")?.remove();
 
   const byName = new Map();
@@ -932,6 +953,89 @@ function trackConvergence(w) {
   }
 }
 
+// -- history / step back --------------------------------------------
+//
+// The core cannot rewind, but it is deterministic: a fresh build replayed
+// through the same ops lands in the same state. So stepping back rebuilds the
+// sim and re-applies the history, one op short. While the cursor is behind the
+// tip, stepping or running forward replays the recorded ops (the cuts and
+// restores come from the history, the rest the sim reproduces on its own) until
+// the sim is live again.
+
+// Note an op in the history. Behind the tip, the sim replays the same sequence,
+// so the op matches the recorded one and the cursor just moves forward. A new
+// action taken from the past crop the history to the current point.
+function record(w, t, link) {
+  const next = w.history[w.cursor];
+  if (next && next.t === t && next.link === link) {
+    w.cursor += 1;
+    return;
+  }
+  w.history.length = w.cursor;
+  w.history.push({ t, link });
+  w.cursor = w.history.length;
+}
+
+// Re-apply one recorded op without animation. Pills that were flying land
+// straight away: they are counted as sent and dropped, and only the last op's
+// BPDUs stay pending on the wire.
+function applyOp(w, op) {
+  if (op.t === "toggle") {
+    applyToggle(w, w.links[op.link]);
+    return;
+  }
+  w.bpdus += w.flights.length;
+  w.flights = [];
+  let gen = 0;
+  if (op.t === "tick") {
+    w.time += 1;
+    w.mstp.oneSecond();
+  } else {
+    gen = w.wave ? w.wave.gen + 1 : 0;
+    w.mstp.deliverBPDUs();
+  }
+  emitWave(w, gen);
+  if (gen >= MAX_WAVES) {
+    w.wave = null;
+    w.bpdus += w.flights.length;
+    w.flights = [];
+  }
+  if (!w.wave) trackConvergence(w);
+}
+
+// Rebuild the core and silently replay the first cursor ops. The selection is
+// carried over to the rebuilt nodes and links.
+function replay(w) {
+  const { history, cursor, selected } = w;
+  const sel =
+    selected &&
+    (selected.type === "link"
+      ? { type: "link", index: w.links.indexOf(selected.ref) }
+      : { type: "node", name: selected.ref.name });
+  build(w);
+  w.history = history;
+  while (w.cursor < cursor) applyOp(w, history[w.cursor++]);
+  select(
+    w,
+    sel &&
+      (sel.type === "link"
+        ? { type: "link", ref: w.links[sel.index] }
+        : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
+  );
+}
+
+// Move one op back.
+function stepBack(w) {
+  if (!w.mstp || w.raf || w.cursor === 0) return;
+  w.cursor -= 1;
+  replay(w);
+}
+
+// The back button only works at rest, with at least one op to rewind.
+function updateBackBtn(w) {
+  w.backBtn.disabled = !w.mstp || w.raf !== null || w.cursor === 0;
+}
+
 // -- running --------------------------------------------------------
 
 // Only one topology on the page runs at a time.
@@ -941,6 +1045,7 @@ let activeWidget = null;
 // transmit on the wire.
 function stepTick(w) {
   if (!w.mstp) return;
+  record(w, "tick");
   w.time += 1;
   w.nextAt = w.clock + 1000;
 
@@ -953,6 +1058,7 @@ function stepTick(w) {
 // The wave has landed: hand the frames to the bridges and send whatever they
 // answer with on its way.
 function deliverWave(w) {
+  record(w, "deliver");
   const gen = w.wave.gen + 1;
   w.wave = null;
   w.mstp.deliverBPDUs();
@@ -1002,6 +1108,15 @@ function animate(w, now) {
   countLaunched(w, from);
   w.flights = w.flights.filter((f) => w.clock < f.start + FLIGHT_MS);
 
+  // Replaying: a recorded cut or restore comes back at its place between the
+  // seconds and waves around it.
+  while (w.cursor < w.history.length && w.history[w.cursor].t === "toggle") {
+    const op = w.history[w.cursor];
+    w.cursor += 1;
+    applyToggle(w, w.links[op.link]);
+    redrawState(w);
+  }
+
   if (w.wave) {
     // A step ends once the BPDUs it was playing have been delivered.
     if (w.clock >= w.wave.landAt) {
@@ -1024,6 +1139,7 @@ function startLoop(w) {
   w.last = performance.now();
   w.raf = requestAnimationFrame((t) => animate(w, t));
   w.stepBtn.disabled = true;
+  updateBackBtn(w);
 }
 
 function stopLoop(w) {
@@ -1031,6 +1147,7 @@ function stopLoop(w) {
   w.raf = null;
   if (activeWidget === w) activeWidget = null;
   w.stepBtn.disabled = !w.mstp;
+  updateBackBtn(w);
 }
 
 // Play one step: send the BPDUs waiting on the wire across their links and
@@ -1038,6 +1155,14 @@ function stopLoop(w) {
 // sit through what is left of the current one.
 function stepOnce(w) {
   if (!w.mstp || w.raf) return;
+  // Replaying: a recorded cut or restore is a step of its own.
+  const next = w.history[w.cursor];
+  if (next && next.t === "toggle") {
+    w.cursor += 1;
+    applyToggle(w, w.links[next.link]);
+    redrawState(w);
+    return;
+  }
   w.stepping = true;
   if (!w.wave) w.nextAt = w.clock;
   startLoop(w);
@@ -1247,6 +1372,7 @@ function render(w) {
   const snap = snapshot(w);
   const live = !!w.mstp;
   renderClock(w);
+  updateBackBtn(w);
   w.svg.replaceChildren();
 
   const defs = svgEl("defs", {}, w.svg);
@@ -1601,7 +1727,7 @@ function select(w, sel) {
 
 // Cutting a cable takes down whatever is on it: the core drops the frames it had
 // queued there, so their pills go too.
-function toggleLink(w, e) {
+function applyToggle(w, e) {
   if (e.oneway) {
     // Specific case for a one way link, we toggle the faulty state.
     e.faulty = !e.faulty;
@@ -1613,6 +1739,11 @@ function toggleLink(w, e) {
     emitWave(w, w.wave ? w.wave.gen : 0);
   }
   markAction(w);
+}
+
+function toggleLink(w, e) {
+  record(w, "toggle", w.links.indexOf(e));
+  applyToggle(w, e);
   select(w, { type: "link", ref: e });
 }
 
