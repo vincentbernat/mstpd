@@ -1010,6 +1010,22 @@ function applyOp(w, op) {
   if (!w.wave) trackConvergence(w);
 }
 
+// Apply one step the way the Step button plays it, but without animation:
+// deliver a pending wave, or run a second and deliver whatever it sends.
+function applyStep(w) {
+  if (w.wave) {
+    record(w, "deliver");
+    applyOp(w, { t: "deliver" });
+    return;
+  }
+  record(w, "tick");
+  applyOp(w, { t: "tick" });
+  if (w.wave) {
+    record(w, "deliver");
+    applyOp(w, { t: "deliver" });
+  }
+}
+
 // Rebuild the core and silently replay the first cursor ops. The selection is
 // carried over to the rebuilt nodes and links.
 function replay(w) {
@@ -1038,10 +1054,29 @@ function animateRewind(w) {
   w.canvas.classList.add("mstp-rewind");
 }
 
-// Move one op back.
+// The step number now on show. A step is one Step press: a tick, or a lone
+// deliver (a deliver that lands a wave an earlier tick sent belongs to that
+// tick's step). A toggle is not a step, so a link cut leaves the number alone.
+function stepNumber(w) {
+  let n = 0;
+  for (let i = 0; i < w.cursor; i++) {
+    const t = w.history[i].t;
+    if (t === "tick" || (t === "deliver" && w.history[i - 1]?.t !== "tick"))
+      n++;
+  }
+  return n;
+}
+
+// Move one step back: undo the step now on show. A deliver that landed a tick's
+// wave goes with that tick, a lone deliver or a toggle on its own.
 function stepBack(w) {
   if (!w.mstp || w.raf || w.cursor === 0) return;
   w.cursor -= 1;
+  if (
+    w.history[w.cursor].t === "deliver" &&
+    w.history[w.cursor - 1]?.t === "tick"
+  )
+    w.cursor -= 1;
   replay(w);
   animateRewind(w);
 }
@@ -1383,7 +1418,7 @@ function setClockField(w, el, text) {
 
 function renderClock(w) {
   setClockField(w, w.clockTime, `t=${w.time}s`);
-  w.clockTime.title = `Step #${w.cursor}`;
+  w.clockTime.title = `Step #${stepNumber(w)}`;
   setClockField(w, w.clockBpdu, `${w.bpdus} BPDUs`);
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
@@ -2138,11 +2173,7 @@ function seek(w, spec) {
     if (/^\d+$/.test(op)) {
       let n = +op;
       if (playLast && oi === ops.length - 1) n -= 1; // hold the last one back
-      for (let i = 0; i < n; i++) {
-        const t = w.wave ? "deliver" : "tick";
-        record(w, t);
-        applyOp(w, { t });
-      }
+      for (let i = 0; i < n; i++) applyStep(w);
       return;
     }
     const m = op.match(/^(.+?)\s*--\s*(.+?)(?::(\d+))?$/);
