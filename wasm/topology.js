@@ -2120,16 +2120,23 @@ function seek(w, spec) {
   if (!w.mstp || w.editing) return;
   setRunning(w, false);
   build(w);
-  for (const tok of spec.split(",")) {
-    const op = tok.trim();
-    if (!op) continue;
+  const ops = spec
+    .split(",")
+    .map((tok) => tok.trim())
+    .filter(Boolean);
+  // When the list ends on a step count, its final step plays animated.
+  const playLast = ops.length > 0 && /^\d+$/.test(ops[ops.length - 1]);
+
+  ops.forEach((op, oi) => {
     if (/^\d+$/.test(op)) {
-      for (let i = 0; i < +op; i++) {
+      let n = +op;
+      if (playLast && oi === ops.length - 1) n -= 1; // hold the last one back
+      for (let i = 0; i < n; i++) {
         const t = w.wave ? "deliver" : "tick";
         record(w, t);
         applyOp(w, { t });
       }
-      continue;
+      return;
     }
     const m = op.match(/^(.+?)\s*--\s*(.+?)(?::(\d+))?$/);
     const matching = m
@@ -2144,13 +2151,13 @@ function seek(w, spec) {
     const idx = matching[(m?.[3] ? +m[3] : 1) - 1] ?? -1;
     if (idx < 0) {
       console.warn(`mstp: cannot apply "${op}"`);
-      continue;
+      return;
     }
     record(w, "toggle", idx);
     applyOp(w, { t: "toggle", link: idx });
-  }
+  });
   select(w, null);
-  animateRewind(w);
+  if (playLast) stepOnce(w);
 }
 
 document.addEventListener("click", (ev) => {
