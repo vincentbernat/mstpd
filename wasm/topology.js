@@ -1373,6 +1373,7 @@ function setClockField(w, el, text) {
 
 function renderClock(w) {
   setClockField(w, w.clockTime, `t=${w.time}s`);
+  w.clockTime.title = `${w.cursor} steps`;
   setClockField(w, w.clockBpdu, `${w.bpdus} BPDUs`);
   if (w.settledAt !== null)
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
