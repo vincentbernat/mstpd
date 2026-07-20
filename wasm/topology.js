@@ -2119,6 +2119,13 @@ function closestWidget(from) {
 function seek(w, spec) {
   if (!w.mstp || w.editing) return;
   setRunning(w, false);
+  // Keep the selected bridge or link selected across the rebuild.
+  const selected = w.selected;
+  const sel =
+    selected &&
+    (selected.type === "link"
+      ? { type: "link", index: w.links.indexOf(selected.ref) }
+      : { type: "node", name: selected.ref.name });
   build(w);
   const ops = spec
     .split(",")
@@ -2156,7 +2163,13 @@ function seek(w, spec) {
     record(w, "toggle", idx);
     applyOp(w, { t: "toggle", link: idx });
   });
-  select(w, null);
+  select(
+    w,
+    sel &&
+      (sel.type === "link"
+        ? { type: "link", ref: w.links[sel.index] }
+        : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
+  );
   if (playLast) stepOnce(w);
 }
 
