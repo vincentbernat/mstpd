@@ -26,6 +26,9 @@
 // proto=none turns the spanning tree off on a bridge: it sends no BPDUs, drops
 // the ones it receives, and its ports have no role or state.
 //
+// A regular link with an #mstp: anchor puts the nearest topology above in a
+// given state, e.g. <a href="#mstp:B--C,30">: see "control links" below.
+//
 // The MSTPD core is loaded via its own <script> tag (above), which publishes
 // window.mstpd; this module picks loadMSTPD off it rather than importing. We
 // could instead import it:
@@ -441,6 +444,7 @@ async function mount(el) {
     cursor: 0,
   };
 
+  widgets.set(host, w);
   applyViewBox(w);
   buildLegend(w);
   showErrors(w);
@@ -2073,6 +2077,80 @@ function pcapButton(w, filename, port) {
     onclick: () => w.mstp.downloadPcap(port, filename, notLaunched(w)),
   });
 }
+
+// -- control links --------------------------------------------------
+//
+// A regular <a href="#mstp:OP,OP,..."> link anywhere in the page puts the
+// nearest topology in a given state: a click resets it, then applies each op
+// in turn, without animation. An op is either:
+//
+//   N     play N steps, as the Step button would
+//   A--B  toggle the link between bridges A and B
+//
+// So #mstp:B--C,30 restarts the topology, cuts the link B -- C and plays 30
+// steps.
+
+// Host element -> widget, to find the widget a control link drives.
+const widgets = new WeakMap();
+
+// The topology a control link drives: the closest one before the link.
+function closestWidget(from) {
+  let before = null;
+  for (const host of document.querySelectorAll(".mstp-host")) {
+    if (from.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_PRECEDING)
+      before = host;
+  }
+  return before && widgets.get(before);
+}
+
+// Reset a topology and apply a #mstp: op list to it.
+function seek(w, spec) {
+  if (!w.mstp || w.editing) return;
+  setRunning(w, false);
+  build(w);
+  for (const tok of spec.split(",")) {
+    const op = tok.trim();
+    if (!op) continue;
+    if (/^\d+$/.test(op)) {
+      for (let i = 0; i < +op; i++) {
+        const t = w.wave ? "deliver" : "tick";
+        record(w, t);
+        applyOp(w, { t });
+      }
+      continue;
+    }
+    const m = op.match(/^(.+?)\s*--\s*(.+)$/);
+    const idx = m
+      ? w.links.findIndex(
+          (l) =>
+            (l.a.name === m[1] && l.b.name === m[2]) ||
+            (l.a.name === m[2] && l.b.name === m[1]),
+        )
+      : -1;
+    if (idx < 0) {
+      console.warn(`mstp: cannot apply "${op}"`);
+      continue;
+    }
+    record(w, "toggle", idx);
+    applyOp(w, { t: "toggle", link: idx });
+  }
+  select(w, null);
+}
+
+document.addEventListener("click", (ev) => {
+  const a = ev.target.closest?.("a[href^='#mstp:']");
+  if (!a) return;
+  ev.preventDefault();
+  const w = closestWidget(a);
+  if (!w) return;
+  seek(w, decodeURIComponent(a.hash.slice(6)));
+
+  // Scroll element into view if needed.
+  if (w.root.classList.contains("mstp-detached")) return;
+  const rect = w.host.getBoundingClientRect();
+  const winH = window.innerHeight || document.documentElement.clientHeight;
+  if (rect.top < 0 || rect.bottom > winH) w.host.scrollIntoView();
+});
 
 // -- bootstrap ------------------------------------------------------
 
