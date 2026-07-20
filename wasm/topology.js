@@ -2086,7 +2086,8 @@ function pcapButton(w, filename, port) {
 // in turn, without animation. An op is either:
 //
 //   N     play N steps, as the Step button would
-//   A--B  toggle the link between bridges A and B
+//   A--B  toggle the link between bridges A and B; with several links
+//         between the two, A--B:2 picks the second, in definition order
 //
 // So #mstp:B--C,30 restarts the topology, cuts the link B -- C and plays 30
 // steps.
@@ -2120,14 +2121,17 @@ function seek(w, spec) {
       }
       continue;
     }
-    const m = op.match(/^(.+?)\s*--\s*(.+)$/);
-    const idx = m
-      ? w.links.findIndex(
-          (l) =>
-            (l.a.name === m[1] && l.b.name === m[2]) ||
-            (l.a.name === m[2] && l.b.name === m[1]),
-        )
-      : -1;
+    const m = op.match(/^(.+?)\s*--\s*(.+?)(?::(\d+))?$/);
+    const matching = m
+      ? w.links
+          .map((l, i) => i)
+          .filter(
+            (i) =>
+              (w.links[i].a.name === m[1] && w.links[i].b.name === m[2]) ||
+              (w.links[i].a.name === m[2] && w.links[i].b.name === m[1]),
+          )
+      : [];
+    const idx = matching[(m?.[3] ? +m[3] : 1) - 1] ?? -1;
     if (idx < 0) {
       console.warn(`mstp: cannot apply "${op}"`);
       continue;
