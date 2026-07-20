@@ -150,6 +150,7 @@
     flex: 2 1 20em;
     min-width: 0;
     display: flex;
+    position: relative;
 
     svg {
       width: 100%;
@@ -158,6 +159,28 @@
       touch-action: manipulation;
       user-select: none;
       fill: currentColor;
+    }
+
+    /* Feedback effect for "rewinding". */
+    &.mstp-rewind {
+      svg {
+        animation: mstp-rewind 0.45s ease-out;
+      }
+      &::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%)
+            0 0 / 100% 45% no-repeat,
+          repeating-linear-gradient(
+            rgba(0, 0, 0, 0.14) 0 1px,
+            transparent 1px 3px
+          );
+        animation: mstp-rewind-sweep 0.45s linear forwards;
+      }
     }
   }
 
@@ -454,9 +477,57 @@
   }
 }
 
+@keyframes mstp-rewind {
+  0% {
+    transform: none;
+    filter: none;
+  }
+  15% {
+    transform: translateX(-3px) skewX(-3deg);
+    filter: brightness(1.4) contrast(1.3);
+  }
+  35% {
+    transform: translateX(3px) skewX(2deg);
+    filter: brightness(0.8);
+  }
+  55% {
+    transform: translateX(-2px) skewX(-2deg);
+    filter: brightness(1.3) hue-rotate(-12deg);
+  }
+  75% {
+    transform: translateX(2px) skewX(2deg);
+    filter: brightness(1.1);
+  }
+  100% {
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes mstp-rewind-sweep {
+  from {
+    background-position:
+      0 120%,
+      0 0;
+    opacity: 1;
+  }
+  to {
+    background-position:
+      0 -50%,
+      0 12px;
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mstp-wait,
   .mstp-bump {
     animation: none;
+  }
+  .mstp-canvas.mstp-rewind {
+    svg,
+    &::after {
+      animation: none;
+    }
   }
 }

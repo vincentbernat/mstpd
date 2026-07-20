@@ -390,6 +390,7 @@ async function mount(el) {
     bar,
     detachBtn,
     svg,
+    canvas,
     panel: panelBody,
     stage,
     legend,
@@ -459,6 +460,7 @@ async function mount(el) {
     setRunning(w, false);
     build(w);
     select(w, null);
+    animateRewind(w);
   };
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
@@ -1029,11 +1031,19 @@ function replay(w) {
   );
 }
 
+// CSS effect for rewinding.
+function animateRewind(w) {
+  w.canvas.classList.remove("mstp-rewind");
+  void w.canvas.offsetWidth;
+  w.canvas.classList.add("mstp-rewind");
+}
+
 // Move one op back.
 function stepBack(w) {
   if (!w.mstp || w.raf || w.cursor === 0) return;
   w.cursor -= 1;
   replay(w);
+  animateRewind(w);
 }
 
 // The back button only works at rest, with at least one op to rewind.
@@ -2140,6 +2150,7 @@ function seek(w, spec) {
     applyOp(w, { t: "toggle", link: idx });
   }
   select(w, null);
+  animateRewind(w);
 }
 
 document.addEventListener("click", (ev) => {
