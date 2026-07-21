@@ -831,6 +831,10 @@ function saveEdit(w) {
 }
 
 function build(w) {
+  // The rebuild can trip browser scroll anchoring and move the page even
+  // though nothing changed size. Note the scroll position to put it back.
+  const y0 = window.scrollY;
+
   const { mstp, model } = w;
   for (const n of w.nodes) n.bridge?.delete();
   w.nodes = [];
@@ -924,6 +928,10 @@ function build(w) {
   showErrors(w);
   render(w);
   if (mstp) renderPanel(w);
+
+  // Force a layout to fix scrolling position if needed.
+  void w.host.getBoundingClientRect();
+  if (window.scrollY !== y0) window.scrollTo({ top: y0, behavior: "instant" });
 }
 
 // -- convergence ----------------------------------------------------
