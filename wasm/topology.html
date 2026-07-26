@@ -212,6 +212,34 @@ B @2,1  prio=8192
 B -> A
 </pre
     >
+
+    <h1>Following one BPDU</h1>
+    <pre class="mstp-topology">
+# Every port proposes on the first exchange, so six BPDUs cross
+# at once. The links below replay a moment and point at the one
+# worth watching.
+
+:protocol rstp
+
+R @1,0  prio=0
+A @0,2  prio=4096
+B @2,2  prio=8192
+
+R -- A
+R -- B
+A -- B
+</pre
+    >
+    <p>
+      Play <a href="#mstp:2">two steps</a>, then point at
+      <a href="#mstp:2,R->A">the proposal R sends to A</a> or at
+      <a href="#mstp:2,A->R,B->R">the two proposals R gets back</a>. On the next
+      step A sends R two frames, and
+      <a href="#mstp:3,A->R#2">the second one is its agreement</a>. Or let it
+      converge and <a href="#mstp:12,R--A,2,B->A">cut R -- A</a>: B proposes to
+      A the way to the root it still has.
+    </p>
+
     <script type="module" src="dist/mstpd.mjs"></script>
     <script type="module" src="topology.js"></script>
   </body>

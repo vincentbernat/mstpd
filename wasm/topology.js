@@ -70,6 +70,9 @@ const BPDU_COLOR = {
   tc: "#ef4444", // ring: the frame also carries a topology change
 };
 
+// The arrow a control link puts on the BPDUs it points out.
+const HIGHLIGHT_COLOR = "#dc2626";
+
 // -- grammar --------------------------------------------------------
 
 function parseOpts(s) {
@@ -435,6 +438,7 @@ async function mount(el) {
     nextAt: 0, // clock time of the next step
     lastClick: { link: null, t: 0 }, // manual double-click detection
     flights: [], // pills flying along the links
+    highlight: [], // the BPDUs a control link points an arrow at
     wave: null, // the BPDUs on the wire, and when the last of them lands
     lastSeq: 0, // the newest BPDU already turned into a pill
     // Step back: every op applied since the build (a simulated second, a wave
@@ -844,6 +848,7 @@ function build(w) {
   w.bpdus = 0;
   w.selected = null;
   w.flights = [];
+  w.highlight = [];
   w.wave = null;
   w.lastSeq = 0;
   w.history = [];
@@ -1306,6 +1311,7 @@ function emitWave(w, gen) {
     w.flights.push({
       link: g.link,
       src: f.src,
+      nth: i,
       sx: g.sx,
       sy: g.sy,
       tx: g.tx,
@@ -1346,6 +1352,7 @@ function drawPills(w) {
     const y = f.sy + (f.ty - f.sy) * p;
     const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
 
+    if (marked(w, f)) drawArrow(layer, f, x, y, fade);
     svgEl(
       "circle",
       {
@@ -1360,6 +1367,54 @@ function drawPills(w) {
       layer,
     );
   }
+}
+
+// Does this pill get an arrow? A mark with no number takes every BPDU its port
+// sends in the same wave.
+const marked = (w, f) =>
+  w.highlight.some(
+    (m) => m.src === f.src && (m.nth === null || m.nth === f.nth),
+  );
+
+// An arrow travelling with a pill and pointing at it, to single out one BPDU
+// among the many crossing the diagram. It sits to one side of the link so the
+// pill itself stays visible.
+function drawArrow(layer, f, x, y, opacity) {
+  const len = Math.hypot(f.tx - f.sx, f.ty - f.sy) || 1;
+  const ux = (f.tx - f.sx) / len;
+  const uy = (f.ty - f.sy) / len;
+  // Coordinates in the arrow's own frame: out is the distance from the pill,
+  // side the offset across the arrow.
+  const at = (out, side) => [
+    x - uy * out + ux * side,
+    y + ux * out + uy * side,
+  ];
+  const gap = 7; // between the pill and the tip
+  const head = 8; // length of the head
+  const total = 21; // tip to tail
+  const hw = 6; // half width of the head
+  const sw = 2; // half width of the shaft
+  svgEl(
+    "polygon",
+    {
+      points: [
+        at(gap, 0),
+        at(gap + head, hw),
+        at(gap + head, sw),
+        at(total, sw),
+        at(total, -sw),
+        at(gap + head, -sw),
+        at(gap + head, -hw),
+      ]
+        .map((p) => p.join(","))
+        .join(" "),
+      fill: HIGHLIGHT_COLOR,
+      stroke: "#fff8",
+      "stroke-width": 0.75,
+      opacity,
+    },
+    layer,
+  );
 }
 
 // -- state ----------------------------------------------------------
@@ -2141,9 +2196,15 @@ function pcapButton(w, filename, port) {
 //   N     play N steps, as the Step button would
 //   A--B  toggle the link between bridges A and B; with several links
 //         between the two, A--B:2 picks the second, in definition order
+//   A->B  put a red arrow on the BPDUs A sends to B, so they can be told apart
+//         from the others crossing the diagram; the link is picked as above,
+//         and A->B#2 takes only the second BPDU the port sends in the step
 //
 // So #mstp:B--C,30 restarts the topology, cuts the link B -- C and plays 30
-// steps.
+// steps. Only the last step is animated, so that is where an arrow shows:
+// #mstp:B--C,30,B->D marks what B sends to D there, and goes on marking it if
+// the widget is stepped on. An arrow op moves nothing, so it can sit anywhere
+// in the list.
 
 // Host element -> widget, to find the widget a control link drives.
 const widgets = new WeakMap();
@@ -2158,6 +2219,22 @@ function closestWidget(from) {
   return before && widgets.get(before);
 }
 
+const SEEK_TOGGLE = /^(.+?)\s*--\s*(.+?)(?:\s*:(\d+))?$/;
+const SEEK_ARROW = /^(.+?)\s*->\s*(.+?)(?:\s*:(\d+))?(?:\s*#(\d+))?$/;
+
+// The link an op names, as an index into w.links, or -1. nth picks one when
+// several links join the same two bridges.
+function pickLink(w, a, b, nth) {
+  const matching = w.links
+    .map((l, i) => i)
+    .filter(
+      (i) =>
+        (w.links[i].a.name === a && w.links[i].b.name === b) ||
+        (w.links[i].a.name === b && w.links[i].b.name === a),
+    );
+  return matching[(nth ? +nth : 1) - 1] ?? -1;
+}
+
 // Reset a topology and apply a #mstp: op list to it.
 function seek(w, spec) {
   if (!w.mstp || w.editing) return;
@@ -2170,10 +2247,26 @@ function seek(w, spec) {
       ? { type: "link", index: w.links.indexOf(selected.ref) }
       : { type: "node", name: selected.ref.name });
   build(w);
-  const ops = spec
+  const all = spec
     .split(",")
     .map((tok) => tok.trim())
     .filter(Boolean);
+  // The arrows are set aside: they mark BPDUs instead of moving the sim on, so
+  // they are taken first and their place in the list does not matter.
+  const arrows = all.filter((op) => SEEK_ARROW.test(op));
+  const ops = all.filter((op) => !SEEK_ARROW.test(op));
+
+  for (const op of arrows) {
+    const m = op.match(SEEK_ARROW);
+    const e = w.links[pickLink(w, m[1], m[2], m[3])];
+    const port = e && (e.a.name === m[1] ? e.aPort : e.bPort);
+    if (!port) {
+      console.warn(`mstp: cannot apply "${op}"`);
+      continue;
+    }
+    w.highlight.push({ src: port.handle, nth: m[4] ? +m[4] - 1 : null });
+  }
+
   // When the list ends on a step count, its final step plays animated.
   const playLast = ops.length > 0 && /^\d+$/.test(ops[ops.length - 1]);
 
@@ -2184,17 +2277,8 @@ function seek(w, spec) {
       for (let i = 0; i < n; i++) applyStep(w);
       return;
     }
-    const m = op.match(/^(.+?)\s*--\s*(.+?)(?::(\d+))?$/);
-    const matching = m
-      ? w.links
-          .map((l, i) => i)
-          .filter(
-            (i) =>
-              (w.links[i].a.name === m[1] && w.links[i].b.name === m[2]) ||
-              (w.links[i].a.name === m[2] && w.links[i].b.name === m[1]),
-          )
-      : [];
-    const idx = matching[(m?.[3] ? +m[3] : 1) - 1] ?? -1;
+    const m = op.match(SEEK_TOGGLE);
+    const idx = m ? pickLink(w, m[1], m[2], m[3]) : -1;
     if (idx < 0) {
       console.warn(`mstp: cannot apply "${op}"`);
       return;
