@@ -70,8 +70,11 @@ const BPDU_COLOR = {
   tc: "#ef4444", // ring: the frame also carries a topology change
 };
 
-// The arrow a control link puts on the BPDUs it points out.
+// The arrow a control link puts on the BPDUs it points out, and how far and
+// how fast it swings towards them.
 const HIGHLIGHT_COLOR = "#dc2626";
+const BOB = 4; // px
+const BOB_MS = 200; // one swing in and out
 
 // -- grammar --------------------------------------------------------
 
@@ -1352,7 +1355,7 @@ function drawPills(w) {
     const y = f.sy + (f.ty - f.sy) * p;
     const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
 
-    if (marked(w, f)) drawArrow(layer, f, x, y, fade);
+    if (marked(w, f)) drawArrow(layer, f, x, y, fade, w.clock);
     svgEl(
       "circle",
       {
@@ -1378,20 +1381,21 @@ const marked = (w, f) =>
 
 // An arrow travelling with a pill and pointing at it, to single out one BPDU
 // among the many crossing the diagram. It sits to one side of the link so the
-// pill itself stays visible.
-function drawArrow(layer, f, x, y, opacity) {
+// pill itself stays visible, and nudges towards it and back to catch the eye.
+function drawArrow(layer, f, x, y, opacity, clock) {
   const len = Math.hypot(f.tx - f.sx, f.ty - f.sy) || 1;
   const ux = (f.tx - f.sx) / len;
   const uy = (f.ty - f.sy) / len;
+  const bob = (BOB / 2) * (1 - Math.cos((2 * Math.PI * clock) / BOB_MS));
   // Coordinates in the arrow's own frame: out is the distance from the pill,
   // side the offset across the arrow.
   const at = (out, side) => [
-    x - uy * out + ux * side,
-    y + ux * out + uy * side,
+    x - uy * (out - bob) + ux * side,
+    y + ux * (out - bob) + uy * side,
   ];
-  const gap = 7; // between the pill and the tip
+  const gap = 10; // between the pill and the tip, at the far end of the swing
   const head = 8; // length of the head
-  const total = 21; // tip to tail
+  const total = 24; // pill to tail
   const hw = 6; // half width of the head
   const sw = 2; // half width of the shaft
   svgEl(
