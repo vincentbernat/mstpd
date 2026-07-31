@@ -76,6 +76,9 @@ const HIGHLIGHT_COLOR = "#dc2626";
 const BOB = 4; // px
 const BOB_MS = 200; // one swing in and out
 
+// Shown on the Start half of the run toggle, and put back when it stops.
+const RUN_TITLE = "Play steps one after another";
+
 // -- grammar --------------------------------------------------------
 
 function parseOpts(s) {
@@ -294,30 +297,37 @@ async function mount(el) {
   const bar = h("div", { class: "mstp-bar" });
   const runBtn = h("button", {
     class: "mstp-btn mstp-toggle",
+    title: RUN_TITLE,
     html: `<span>${icon("▶️")}Start</span><span>${icon("⏹️")}Stop</span>`,
   });
   const backBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("⏮️")}Back`,
+    title: "Undo the last step",
+    html: `${icon("↩️")}Back`,
   });
   const stepBtn = h("button", {
     class: "mstp-btn",
-    html: `${icon("⏭️")}Step`,
+    title: "Play one step",
+    html: `${icon("➡️")}Step`,
   });
   const resetBtn = h("button", {
     class: "mstp-btn",
+    title: "Start the simulation over from t=0s",
     html: `${icon("🔄")}Reset`,
   });
   const editBtn = h("button", {
     class: "mstp-btn",
+    title: "Edit the topology definition",
     html: `${icon("✏️")}Edit`,
   });
   const saveBtn = h("button", {
     class: "mstp-btn mstp-accent",
+    title: "Adopt the edited definition and rebuild",
     html: `${icon("💾")}Save`,
   });
   const discardBtn = h("button", {
     class: "mstp-btn",
+    title: "Leave the editor and keep the current definition",
     html: `${icon("🗑️")}Discard`,
   });
   const detachBtn = h("button", { class: "mstp-btn mstp-detach" });
@@ -1248,10 +1258,16 @@ function stopRunning(w) {
   if (w.raf && w.wave) {
     w.running = false;
     w.stepping = true;
-    w.runBtn.classList.remove("mstp-active");
+    showRunning(w, false);
     return;
   }
   setRunning(w, false);
+}
+
+// The same button reads Start or Stop, so its tooltip follows the state.
+function showRunning(w, on) {
+  w.runBtn.classList.toggle("mstp-active", on);
+  w.runBtn.title = on ? "Stop once the current step is over" : RUN_TITLE;
 }
 
 function setRunning(w, on) {
@@ -1262,12 +1278,12 @@ function setRunning(w, on) {
       w.nextAt = w.clock + 200;
       startLoop(w);
     }
-    w.runBtn.classList.add("mstp-active");
+    showRunning(w, true);
     w.stepBtn.disabled = true;
   } else if (!on && (w.running || w.raf)) {
     w.running = w.stepping = false;
     stopLoop(w);
-    w.runBtn.classList.remove("mstp-active");
+    showRunning(w, false);
   }
 }
 
@@ -1954,6 +1970,13 @@ function renderPanel(w) {
         class:
           "mstp-btn mstp-toggle" +
           ((e.oneway ? e.faulty : broken) ? " mstp-active" : ""),
+        title: e.oneway
+          ? e.faulty
+            ? `Let ${e.b.name} transmit again`
+            : `Keep ${e.b.name} receiving, but stop it transmitting`
+          : broken
+            ? "Bring the link back up"
+            : "Take the link down",
         html: e.oneway
           ? `<span>${icon("✂️")}Break one way</span>` +
             `<span>${icon("🔗")}Repair link</span>`
@@ -2186,6 +2209,7 @@ function notLaunched(w) {
 function pcapButton(w, filename, port) {
   return h("button", {
     class: "mstp-btn mstp-pcap",
+    title: `Save the BPDUs seen so far as ${filename}`,
     html: `${icon("📦")}Download packets`,
     onclick: () => w.mstp.downloadPcap(port, filename, notLaunched(w)),
   });
