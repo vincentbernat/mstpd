@@ -296,7 +296,7 @@ async function mount(el) {
   const root = h("div", { class: "mstp-topo" });
   const bar = h("div", { class: "mstp-bar" });
   const runBtn = h("button", {
-    class: "mstp-btn mstp-toggle",
+    class: "mstp-btn mstp-toggle mstp-primary",
     title: RUN_TITLE,
     html: `<span>${icon("▶️")}Start</span><span>${icon("⏹️")}Stop</span>`,
   });
