@@ -79,6 +79,8 @@ const BOB_MS = 200; // one swing in and out
 // Shown on the Start half of the run toggle, and put back when it stops.
 const RUN_TITLE = "Play steps one after another";
 
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
 // -- grammar --------------------------------------------------------
 
 function parseOpts(s) {
@@ -1073,11 +1075,37 @@ function replay(w) {
   );
 }
 
-// CSS effect for rewinding.
-function animateRewind(w) {
+// Copy the diagram as it stands, to slide it out once the rewound one has taken
+// its place. The copy is laid over the canvas, so it needs the size it had as
+// the only child.
+function snapshotCanvas(w) {
+  if (reducedMotion.matches) return null;
+  const { width, height } = w.svg.getBoundingClientRect();
+  if (!width || !height) return null;
+  const ghost = w.svg.cloneNode(true);
+  ghost.classList.add("mstp-ghost");
+  ghost.style.width = `${width}px`;
+  ghost.style.height = `${height}px`;
+  return ghost;
+}
+
+// Push the old diagram out to the right while the rewound one comes in from the
+// left, the way a step back travels.
+function animateRewind(w, ghost) {
+  w.canvas.querySelector(".mstp-ghost")?.remove();
   w.canvas.classList.remove("mstp-rewind");
-  void w.canvas.offsetWidth;
+  if (!ghost) return;
+  void w.canvas.offsetWidth; // let the browser catch up, so the slide starts again
+  w.canvas.append(ghost);
   w.canvas.classList.add("mstp-rewind");
+  ghost.addEventListener(
+    "animationend",
+    () => {
+      ghost.remove();
+      w.canvas.classList.remove("mstp-rewind");
+    },
+    { once: true },
+  );
 }
 
 // The step number now on show. A step is one Step press: a tick, or a lone
@@ -1097,6 +1125,7 @@ function stepNumber(w) {
 // wave goes with that tick, a lone deliver or a toggle on its own.
 function stepBack(w) {
   if (!w.mstp || w.raf || w.cursor === 0) return;
+  const ghost = snapshotCanvas(w);
   w.cursor -= 1;
   if (
     w.history[w.cursor].t === "deliver" &&
@@ -1104,7 +1133,7 @@ function stepBack(w) {
   )
     w.cursor -= 1;
   replay(w);
-  animateRewind(w);
+  animateRewind(w, ghost);
 }
 
 // The back button only works at rest, with at least one op to rewind.
