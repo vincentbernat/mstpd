@@ -104,6 +104,8 @@
   .mstp-wait {
     display: inline-block;
     font-style: normal;
+  }
+  &.mstp-running .mstp-wait {
     animation: mstp-flip 2.4s ease-in-out infinite;
   }
   /* A step is a single click, so its effect on the clock is easy to miss. */

@@ -1267,6 +1267,7 @@ function stopRunning(w) {
 // The same button reads Start or Stop, so its tooltip follows the state.
 function showRunning(w, on) {
   w.runBtn.classList.toggle("mstp-active", on);
+  w.root.classList.toggle("mstp-running", on);
   w.runBtn.title = on ? "Stop once the current step is over" : RUN_TITLE;
 }
 
