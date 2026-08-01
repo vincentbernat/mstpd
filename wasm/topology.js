@@ -252,9 +252,6 @@ function h(tag, opts = {}, ...kids) {
 // The trailing space lives inside, so it goes away with the icon.
 const icon = (e) => `<i class="mstp-icon">${e} </i>`;
 
-// Same as icon() but without the trailing space, for icon-only buttons.
-const squareIcon = (e) => `<i class="mstp-icon">${e}</i>`;
-
 // Hello time is left out: the core only accepts 2 seconds.
 const timersOf = (d) => ({
   forwardDelay: d.forwardDelay,
@@ -329,10 +326,9 @@ async function mount(el) {
   });
   const discardBtn = h("button", {
     class: "mstp-btn",
-    title: "Leave the editor and keep the current definition",
+    title: "Close the editor and keep the current definition",
     html: `${icon("🗑️")}Discard`,
   });
-  const detachBtn = h("button", { class: "mstp-btn mstp-detach" });
   runBtn.disabled =
     backBtn.disabled =
     stepBtn.disabled =
@@ -355,7 +351,7 @@ async function mount(el) {
     "label",
     {
       class: "mstp-slow",
-      title: "Slow motion — stretch each second so BPDUs are easier to follow",
+      title: "Slow motion: make each second longer to follow the BPDUs",
     },
     slowBox,
     h("span", { text: "🐌" }),
@@ -370,7 +366,6 @@ async function mount(el) {
     discardBtn,
     clock,
     slow,
-    detachBtn,
   );
 
   const stage = h("div", { class: "mstp-stage" });
@@ -378,21 +373,21 @@ async function mount(el) {
   const canvas = h("div", { class: "mstp-canvas" }, svg);
   const panel = h("div", { class: "mstp-panel" });
   const panelBody = h("div", { class: "mstp-panel-body" });
-  panel.appendChild(panelBody);
-  const legend = h("div", { class: "mstp-legend" });
-  stage.append(canvas, panel, legend);
 
-  // The editor replaces the stage and legend while editing the definition.
+  // The editor takes the place of the details while the definition is being
+  // changed, so the diagram stays where it is.
   const textarea = h("textarea", { class: "mstp-edit-area" });
   textarea.spellcheck = false;
   textarea.setAttribute("aria-label", "Topology definition");
-  const editor = h("div", { class: "mstp-editor" }, textarea);
-  editor.hidden = true;
+  textarea.hidden = true;
+  panel.append(panelBody, textarea);
+  const legend = h("div", { class: "mstp-legend" });
+  stage.append(canvas, panel, legend);
 
   const errBox = h("div", { class: "mstp-errors" });
   errBox.hidden = true;
 
-  root.append(bar, stage, editor, errBox);
+  root.append(bar, stage, errBox);
 
   const host = h("div", { class: "mstp-host" });
   const shadow = host.attachShadow({ mode: "open" });
@@ -405,14 +400,10 @@ async function mount(el) {
     source,
     root,
     host,
-    bar,
-    detachBtn,
     svg,
     canvas,
     panel: panelBody,
-    stage,
     legend,
-    editor,
     textarea,
     errBox,
     runBtn,
@@ -425,7 +416,6 @@ async function mount(el) {
     clockTime,
     clockBpdu,
     clockConv,
-    slow,
     speed: 1, // real seconds per simulated second (snail bumps it to SLOW_FACTOR)
     mstp: null,
     nodes: [],
@@ -484,12 +474,6 @@ async function mount(el) {
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
   discardBtn.onclick = () => exitEdit(w);
-  detachBtn.onclick = () =>
-    setDetached(w, !w.root.classList.contains("mstp-detached"));
-  bar.addEventListener("pointerdown", (ev) => startDrag(w, ev));
-  root.addEventListener("pointerdown", (ev) => startResize(w, ev), true);
-  root.addEventListener("pointermove", (ev) => updateResizeCursor(w, ev));
-  setDetached(w, false);
   slowBox.onchange = () => {
     w.speed = slowBox.checked ? SLOW_FACTOR : 1;
   };
@@ -510,197 +494,74 @@ async function mount(el) {
   return w;
 }
 
-// -- detach ---------------------------------------------------------
+// -- sticky ---------------------------------------------------------
+//
+// A topology stays at the top of the window while the text about it goes past.
+// Once its top edge would leave the window, the widget is taken out of the flow
+// and pinned there. Its host stays behind and keeps the height it had, so the
+// page does not move. The next heading, or the next topology, pushes the widget
+// back out as it comes up.
 
-// Only one widget floats in the corner at a time.
-let detachedWidget = null;
+// What puts an end to a topology's stay at the top of the window.
+const STOPPER = "h1, h2, h3, h4, h5, h6, .mstp-host";
 
-// Detach a widget to a sticky floating widget in the top-right corner, or put it
-// back where it belongs. While detached, the host keeps its measured height so
-// the space in the page stays the same. Detaching one widget re-attaches any
-// other one already floating.
-function setDetached(w, on) {
-  if (on) {
-    if (detachedWidget && detachedWidget !== w)
-      setDetached(detachedWidget, false);
-    w.host.style.height = `${w.host.getBoundingClientRect().height}px`;
-    w.host.classList.add("mstp-vacated");
-    w.root.classList.add("mstp-detached");
-    // Open past the 40em stacking breakpoint so the panel sits on the side. The
-    // breakpoint measures the content box, so clear the two 1px borders plus a
-    // pixel.
-    w.root.style.width = "calc(40em + 3px)";
-    w.detachBtn.innerHTML = squareIcon("✖️");
-    w.detachBtn.title = "Put the widget back";
-    detachedWidget = w;
-  } else {
-    w.root.classList.remove("mstp-detached");
-    w.host.classList.remove("mstp-vacated");
+// How far down the window the widget may reach: the top of what comes next,
+// margin included, so the widget does not sit on the air above a heading.
+function stopAt(el) {
+  const top = el.getBoundingClientRect().top;
+  return top - (parseFloat(getComputedStyle(el).marginTop) || 0);
+}
+
+// Pin a widget at a given offset from the top of the window (0, or negative
+// while it is on its way out), or put it back in the page. rect is where its
+// host sits and height how tall the widget is.
+function setStuck(w, top, rect, height) {
+  if (top === null) {
+    w.root.classList.remove("mstp-stuck");
+    w.root.style.top = w.root.style.left = w.root.style.width = "";
     w.host.style.height = "";
-    // Drop any dragged position and resized size so a later detach starts back
-    // in the corner at its natural size.
-    w.root.style.left = w.root.style.top = w.root.style.right = "";
-    w.root.style.width = w.root.style.height = w.root.style.cursor = "";
-    w.detachBtn.innerHTML = squareIcon("📌");
-    w.detachBtn.title = "Detach to a floating corner";
-    if (detachedWidget === w) detachedWidget = null;
+    return;
   }
-}
-
-// Reattach the widget if the window is resized.
-window.addEventListener("resize", () => {
-  if (detachedWidget) setDetached(detachedWidget, false);
-});
-
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-// Drag the floating widget around by its bar when detached. The widget stays inside
-// the window.
-function startDrag(w, ev) {
-  if (!w.root.classList.contains("mstp-detached")) return;
-  if (ev.target.closest("button, input, label")) return;
-  ev.preventDefault();
-  const rect = w.root.getBoundingClientRect();
-  const dx = ev.clientX - rect.left;
-  const dy = ev.clientY - rect.top;
+  w.host.style.height = `${height}px`;
+  w.root.style.top = `${top}px`;
   w.root.style.left = `${rect.left}px`;
-  w.root.style.top = `${rect.top}px`;
-  w.root.style.right = "auto";
-
-  const move = (e) => {
-    const x = clamp(e.clientX - dx, 0, window.innerWidth - w.root.offsetWidth);
-    const y = clamp(
-      e.clientY - dy,
-      0,
-      window.innerHeight - w.root.offsetHeight,
-    );
-    w.root.style.left = `${x}px`;
-    w.root.style.top = `${y}px`;
-  };
-  const up = () => {
-    w.bar.removeEventListener("pointermove", move);
-    w.bar.removeEventListener("pointerup", up);
-  };
-  w.bar.setPointerCapture(ev.pointerId);
-  w.bar.addEventListener("pointermove", move);
-  w.bar.addEventListener("pointerup", up);
-}
-
-const RESIZE_EDGE = 8; // width of the grab zone along each border, in pixels
-const SNAP = 16; // a border this close to a window edge snaps flush to it
-const MIN_W = 340;
-const MIN_H = MIN_W;
-
-// Pull a border flush to a window edge when it lands within the snap zone.
-const snap = (v, edge) => (Math.abs(v - edge) <= SNAP ? edge : v);
-
-// A resize is under way, so hover should not fight the border cursor.
-let resizing = false;
-
-// Which borders the pointer sits on, within the grab zone.
-function resizeEdges(w, ev) {
-  const r = w.root.getBoundingClientRect();
-  return {
-    left: ev.clientX - r.left <= RESIZE_EDGE,
-    right: r.right - ev.clientX <= RESIZE_EDGE,
-    top: ev.clientY - r.top <= RESIZE_EDGE,
-    bottom: r.bottom - ev.clientY <= RESIZE_EDGE,
-  };
-}
-
-function edgeCursor(e) {
-  if ((e.top && e.left) || (e.bottom && e.right)) return "nwse-resize";
-  if ((e.top && e.right) || (e.bottom && e.left)) return "nesw-resize";
-  if (e.left || e.right) return "ew-resize";
-  if (e.top || e.bottom) return "ns-resize";
-  return "";
-}
-
-// Side-by-side layout: the panel body is absolutely positioned, so the widget
-// height is set by the canvas and any extra height would just be empty space.
-const sideBySide = (w) => getComputedStyle(w.panel).position === "absolute";
-
-// Show the matching resize cursor while hovering a border of the floating widget.
-function updateResizeCursor(w, ev) {
-  if (resizing) return;
-  if (!w.root.classList.contains("mstp-detached")) return;
-  const e = resizeEdges(w, ev);
-  if (sideBySide(w)) e.top = e.bottom = false;
-  w.root.style.cursor = edgeCursor(e);
-}
-
-// Resize the floating widget by dragging any border or corner. The widget stays
-// inside the window and keeps a minimum size.
-function startResize(w, ev) {
-  if (ev.button !== 0) return;
-  if (!w.root.classList.contains("mstp-detached")) return;
-  // Leave the bar's controls alone even when they sit near a border.
-  if (ev.target.closest("button, input, label, select, textarea")) return;
-  const e = resizeEdges(w, ev);
-  // With the height locked, a grab on the top or bottom border does nothing.
-  const lockH = sideBySide(w);
-  if (lockH) e.top = e.bottom = false;
-  if (!e.left && !e.right && !e.top && !e.bottom) return;
-  ev.preventDefault();
-  ev.stopPropagation();
-
-  const rect = w.root.getBoundingClientRect();
-  const startX = ev.clientX;
-  const startY = ev.clientY;
-  const x0 = rect.left;
-  const y0 = rect.top;
-  const x1 = rect.right;
-  const y1 = rect.bottom;
-  w.root.style.left = `${x0}px`;
-  w.root.style.top = `${y0}px`;
-  w.root.style.right = "auto";
   w.root.style.width = `${rect.width}px`;
-  w.root.style.height = lockH ? "" : `${rect.height}px`;
-  resizing = true;
-  w.root.style.cursor = edgeCursor(e);
-
-  const move = (m) => {
-    const dx = m.clientX - startX;
-    const dy = m.clientY - startY;
-    let l = x0,
-      t = y0,
-      r = x1,
-      b = y1;
-    if (e.left) l = snap(clamp(x0 + dx, 0, x1 - MIN_W), 0);
-    if (e.right)
-      r = snap(
-        clamp(x1 + dx, x0 + MIN_W, window.innerWidth),
-        window.innerWidth,
-      );
-    w.root.style.left = `${l}px`;
-    w.root.style.width = `${r - l}px`;
-    // Lock the height to the natural size whenever the layout is side-by-side,
-    // even if widening crossed into it mid-drag, or when no vertical border is
-    // being dragged.
-    if (sideBySide(w) || (!e.top && !e.bottom)) {
-      w.root.style.top = `${y0}px`;
-      w.root.style.height = "";
-      return;
-    }
-    if (e.top) t = snap(clamp(y0 + dy, 0, y1 - MIN_H), 0);
-    if (e.bottom)
-      b = snap(
-        clamp(y1 + dy, y0 + MIN_H, window.innerHeight),
-        window.innerHeight,
-      );
-    w.root.style.top = `${t}px`;
-    w.root.style.height = `${b - t}px`;
-  };
-  const up = () => {
-    resizing = false;
-    w.root.style.cursor = "";
-    w.root.removeEventListener("pointermove", move);
-    w.root.removeEventListener("pointerup", up);
-  };
-  w.root.setPointerCapture(ev.pointerId);
-  w.root.addEventListener("pointermove", move);
-  w.root.addEventListener("pointerup", up);
+  w.root.classList.add("mstp-stuck");
 }
+
+// Go over the topologies and pin or release each of them. A pinned widget
+// leaves its host where it was, so what is measured here is always the place
+// the page gives the topology, not the place it is drawn at.
+function updateSticky() {
+  const els = [...document.querySelectorAll(STOPPER)];
+  els.forEach((el, i) => {
+    const w = widgets.get(el);
+    if (!w) return;
+    const rect = el.getBoundingClientRect();
+    const stop = els[i + 1] ? stopAt(els[i + 1]) : Infinity;
+    // Above the window, and with something left of the room before the next
+    // heading or topology.
+    if (rect.top >= 0 || stop <= 0) return setStuck(w, null);
+    const height = w.root.getBoundingClientRect().height;
+    setStuck(w, Math.min(0, stop - height), rect, height);
+  });
+}
+
+let stickyPending = false;
+
+// Scrolling fires far more often than the screen is drawn, so the work waits
+// for the next frame.
+function scheduleSticky() {
+  if (stickyPending) return;
+  stickyPending = true;
+  requestAnimationFrame(() => {
+    stickyPending = false;
+    updateSticky();
+  });
+}
+
+window.addEventListener("scroll", scheduleSticky, { passive: true });
+window.addEventListener("resize", scheduleSticky);
 
 // -- layout ---------------------------------------------------------
 
@@ -771,7 +632,9 @@ function buildLegend(w) {
   }
   const ring = h("i", { class: "mstp-dot" });
   ring.style.background = "transparent";
-  ring.style.border = `2px solid ${BPDU_COLOR.tc}`;
+  // The swatch is sized in em, so the ring has to be too, or it turns into a
+  // blob once the legend shrinks.
+  ring.style.border = `0.15em solid ${BPDU_COLOR.tc}`;
   pillSet.appendChild(
     h("span", {}, ring, document.createTextNode("topology change")),
   );
@@ -805,14 +668,13 @@ function enterEdit(w) {
   setRunning(w, false);
   w.textarea.value = w.source;
   w.editing = true;
-  w.stage.hidden = w.legend.hidden = true;
-  w.editor.hidden = false;
+  w.panel.hidden = true;
+  w.textarea.hidden = false;
   w.runBtn.hidden =
     w.backBtn.hidden =
     w.stepBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
-    w.slow.hidden =
       true;
   w.saveBtn.hidden = w.discardBtn.hidden = false;
   w.textarea.focus();
@@ -820,14 +682,13 @@ function enterEdit(w) {
 
 function leaveEdit(w) {
   w.editing = false;
-  w.editor.hidden = true;
-  w.stage.hidden = w.legend.hidden = false;
+  w.textarea.hidden = true;
+  w.panel.hidden = false;
   w.runBtn.hidden =
     w.backBtn.hidden =
     w.stepBtn.hidden =
     w.resetBtn.hidden =
     w.editBtn.hidden =
-    w.slow.hidden =
       false;
   w.saveBtn.hidden = w.discardBtn.hidden = true;
 }
@@ -847,6 +708,7 @@ function saveEdit(w) {
   leaveEdit(w);
   build(w);
   if (w.mstp) select(w, null);
+  scheduleSticky(); // a new definition means a diagram of another shape
 }
 
 function build(w) {
@@ -1297,7 +1159,7 @@ function stopRunning(w) {
 function showRunning(w, on) {
   w.runBtn.classList.toggle("mstp-active", on);
   w.root.classList.toggle("mstp-running", on);
-  w.runBtn.title = on ? "Stop once the current step is over" : RUN_TITLE;
+  w.runBtn.title = on ? "Stop after the current step" : RUN_TITLE;
 }
 
 function setRunning(w, on) {
@@ -2002,8 +1864,8 @@ function renderPanel(w) {
           ((e.oneway ? e.faulty : broken) ? " mstp-active" : ""),
         title: e.oneway
           ? e.faulty
-            ? `Let ${e.b.name} transmit again`
-            : `Keep ${e.b.name} receiving, but stop it transmitting`
+            ? `Let ${e.b.name} send again`
+            : `Keep ${e.b.name} receiving, but stop it from sending`
           : broken
             ? "Bring the link back up"
             : "Take the link down",
@@ -2023,9 +1885,9 @@ function renderPanel(w) {
         text: !e.oneway
           ? "Double-click a link to cut it."
           : e.faulty
-            ? `A one-way fault: ${e.b.name} receives but never transmits. ` +
-              "Double-click the link to mend it."
-            : `Double-click the link to break ${e.b.name}'s transmitter.`,
+            ? `A one-way fault: ${e.b.name} receives but never sends. ` +
+              "Double-click the link to repair it."
+            : `Double-click the link to stop ${e.b.name} from sending.`,
       }),
     );
     return;
@@ -2361,12 +2223,6 @@ document.addEventListener("click", (ev) => {
   const w = closestWidget(a);
   if (!w) return;
   seek(w, decodeURIComponent(a.hash.slice(6)));
-
-  // Scroll element into view if needed.
-  if (w.root.classList.contains("mstp-detached")) return;
-  const rect = w.host.getBoundingClientRect();
-  const winH = window.innerHeight || document.documentElement.clientHeight;
-  if (rect.top < 0 || rect.bottom > winH) w.host.scrollIntoView();
 });
 
 // -- bootstrap ------------------------------------------------------
@@ -2375,6 +2231,7 @@ const SELECTOR = "pre.mstp-topology, div.mstp-topology:has(> pre > code)";
 
 function mountAll(scope = document) {
   for (const el of scope.querySelectorAll(SELECTOR)) mount(el);
+  scheduleSticky();
 }
 
 if (document.readyState === "loading")

@@ -10,18 +10,25 @@
   --accent-fill: #2a73;
   --accent-fill-hover: #2a75;
   --mono: ui-monospace, monospace;
+  --max-height: 50vh;
 
   font-size: 1rem;
   font-family: system-ui, sans-serif;
   border: 1px solid var(--line);
+  background: Canvas;
   overflow: hidden;
   container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  max-height: var(--max-height);
 
+  &,
   * {
     box-sizing: border-box;
   }
 
   .mstp-bar {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 0.4em;
@@ -99,7 +106,7 @@
   .mstp-clock-b::before,
   .mstp-clock-c:not(:empty)::before {
     content: "·";
-    margin: 0 0.35em;
+    margin: 0 0.2em;
   }
   .mstp-wait {
     display: inline-block;
@@ -114,24 +121,6 @@
     animation: mstp-bump 1s ease-out;
   }
 
-  .mstp-detach {
-    display: inline-grid;
-    place-items: center;
-    aspect-ratio: 1;
-    padding: 0.2em;
-    line-height: 1;
-    border: 0;
-    background: none;
-    .mstp-icon {
-      margin: 0;
-    }
-    @media (prefers-color-scheme: dark) {
-      .mstp-icon {
-        filter: grayscale(1) brightness(1.7);
-      }
-    }
-  }
-
   .mstp-slow {
     display: inline-flex;
     align-items: center;
@@ -144,13 +133,15 @@
   }
 
   .mstp-stage {
+    flex: 0 1 auto;
+    min-height: 0;
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
   }
 
   .mstp-canvas {
-    flex: 2 1 20em;
+    flex: 1 1 0;
     min-width: 0;
     display: flex;
     position: relative;
@@ -186,66 +177,36 @@
 
   .mstp-panel {
     position: relative;
-    flex: 0 0 20em;
+    flex: 0 0 min(20em, 50%);
     border-left: 1px solid var(--line);
   }
 
-  /* Side-by-side: the body fills the panel (whose height the canvas sets) and
-     scrolls, so a long panel never makes the row taller than the diagram. */
-  .mstp-panel-body {
+  /* The body fills the panel (whose height the canvas sets) and scrolls, so a
+     long panel never makes the row taller than the diagram. The editor takes
+     the same place. */
+  .mstp-panel-body,
+  .mstp-edit-area {
     position: absolute;
     inset: 0;
     overflow: auto;
     padding: 0.5em;
-
-    h3 {
-      font-size: 0.95em;
-      margin: 0 0 0.5em;
-    }
   }
 
-  /* Stacked below the canvas: the panel takes its natural height again, and its
-     left border becomes a top border. */
-  @container (max-width: 40em) {
-    .mstp-stage {
-      flex-direction: column;
-    }
-    .mstp-canvas,
-    .mstp-panel {
-      flex: none;
-    }
-    /* Order the legend between the canvas and the panel. */
-    .mstp-legend {
-      order: 1;
-      flex: none;
-    }
-    .mstp-panel {
-      order: 2;
-      border-left: 0;
-      border-top: 1px solid var(--line);
-    }
-    .mstp-panel-body {
-      position: static;
-    }
+  .mstp-panel-body h3 {
+    font-size: 0.95em;
+    margin: 0 0 0.5em;
+  }
 
-    /* Stack the clock and shrink it. */
-    .mstp-clock {
-      font-size: 0.7em;
-      line-height: 1.15;
-    }
-    .mstp-clock-t,
-    .mstp-clock-b,
-    .mstp-clock-c {
-      display: block;
-    }
-    .mstp-clock-b::before,
-    .mstp-clock-c:not(:empty)::before {
-      content: none;
-    }
-    .mstp-icon,
-    .mstp-detach {
-      display: none;
-    }
+  .mstp-edit-area {
+    font-family: var(--mono);
+    font-size: 0.8em;
+    resize: none;
+    border: 0;
+    background: var(--fill);
+    color: inherit;
+    tab-size: 2;
+    /* The widget clips whatever leaves it, so keep the focus ring inside. */
+    outline-offset: -2px;
   }
 
   .mstp-hint {
@@ -268,7 +229,7 @@
     th,
     td {
       text-align: left;
-      padding: 0.18em 0;
+      padding: 0.18em 0.2em;
       border-bottom: 1px solid var(--line-soft);
       vertical-align: top;
     }
@@ -360,7 +321,8 @@
     gap: 0.2em 0.8em;
     padding: 0.35em 0.7em;
     border-top: 1px solid var(--line);
-    font-size: 0.85em;
+    font-size: 0.7em;
+    font-size: clamp(0.5em, 1.7cqi, 0.85em);
     opacity: 0.8;
 
     i {
@@ -388,23 +350,8 @@
     gap: 0.2em 0.5em;
   }
 
-  .mstp-editor {
-    padding: 0.6em 0.7em;
-
-    .mstp-edit-area {
-      width: 100%;
-      min-height: 15em;
-      resize: vertical;
-      font-family: var(--mono);
-      padding: 0.5em 0.6em;
-      border: 1px solid var(--line);
-      background: var(--fill);
-      color: inherit;
-      tab-size: 2;
-    }
-  }
-
   .mstp-errors {
+    flex: none;
     padding: 0.5em 0.8em;
     border-top: 1px solid var(--line);
     font-size: 0.82em;
@@ -412,41 +359,43 @@
     font-family: var(--mono);
   }
 
-  /* Detached: a sticky floating card. */
-  &.mstp-detached {
-    position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 1000;
-    font-size: 0.8rem;
-    max-width: 100vw;
-    max-height: 100vh;
-    overflow: auto;
-    background: Canvas;
-    box-shadow: 0 0.5em 1.75em #0006;
+  /* Narrow: shrink the type and drop the icons, to leave the diagram as much
+     room as possible. Last, so it wins over the sizes set above. */
+  @container (max-width: 36em) {
+    .mstp-bar {
+      font-size: 0.8em;
+    }
+    .mstp-panel {
+      font-size: 0.7em;
+    }
+    .mstp-icon {
+      display: none;
+    }
 
-    .mstp-detach {
-      display: inline-block;
-      .mstp-icon {
-        display: inline;
+    /* Two lines of clock are enough: the time and the count share the first. */
+    .mstp-clock {
+      font-size: 0.8em;
+      line-height: 1.15;
+    }
+    .mstp-clock-c {
+      display: block;
+      &:not(:empty)::before {
+        content: none;
       }
     }
+  }
 
-    .mstp-bar {
-      cursor: move;
-    }
+  /* Held at the top of the window while the text about it goes past. The
+     script sets where and how wide. */
+  &.mstp-stuck {
+    position: fixed;
+    z-index: 100;
+    box-shadow: 0 0.4em 1em #0004;
   }
 }
 
 .mstp-host {
   margin: 1rem 0;
-
-  /* Empty space when detached */
-  &.mstp-vacated {
-    display: block;
-    border: 1px dashed #8886;
-    background: repeating-linear-gradient(45deg, #8881 0 8px, #8883 8px 16px);
-  }
 }
 
 /* Let the sand run, then turn the hourglass over. Two half turns per cycle so

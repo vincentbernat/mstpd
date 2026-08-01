@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MSTPD topology snippets</title>
+    <title>MSTPD topology examples</title>
     <link rel="stylesheet" href="topology.css" />
     <style>
       :root {
@@ -15,31 +15,78 @@
         max-width: 820px;
         margin: 2rem auto;
         padding: 0 1rem;
+        line-height: 1.5;
       }
       h1 {
-        font-size: 1.4rem;
+        font-size: 1.6rem;
+      }
+      h2 {
+        font-size: 1.2rem;
+        margin-top: 2.5rem;
       }
     </style>
   </head>
   <body>
-    <h1>A ring with a redundant diagonal</h1>
+    <h1>MSTPD topology examples</h1>
+    <p>
+      Each diagram below is a live spanning tree. A few lines of text in a
+      <code>&lt;pre&gt;</code> block describe it, and the protocol behind it is
+      MSTPD itself, compiled to WebAssembly. Press Start to run the clock, click
+      a bridge or a link to see its state, double-click a link to cut it, and
+      press Edit to change the topology and try something else.
+    </p>
+
+    <h2>A ring with an extra diagonal link</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
 A @0,0  prio=4096
-B @3,0
+B @2,0
 C @0,2
-D @3,2
+D @2,2
 
 A -- B
 A -- C
 B -- D
 C -- D
 B -- C  cost=100
-</pre
-    >
+    </pre>
+    <p>
+      A has the best priority, so it becomes the root. A tree over four bridges
+      uses only three cables out of five, so two cables have one end that
+      discards frames. Which two depends on the cost of each hop: the diagonal B
+      -- C gets a cost of 100, much lower than the cost the other links get
+      automatically. Click a link to compare.
+    </p>
 
-    <h1>Multiple links between two nodes</h1>
+    <h2>Following one BPDU</h2>
+    <pre class="mstp-topology">
+:protocol rstp
+
+R @1,0  prio=0
+A @0,2  prio=4096
+B @2,2  prio=8192
+
+R -- A
+R -- B
+A -- B
+    </pre>
+    <p>
+      Play <a href="#mstp:2">two steps</a>, then look at
+      <a href="#mstp:2,R->A">the proposal R sends to A</a> or at
+      <a href="#mstp:2,A->R,B->R">the two proposals R gets back</a>. On the next
+      step A sends two frames to R, and
+      <a href="#mstp:3,A->R#2">the second one is its agreement</a>. You can also
+      wait for the tree to settle and then
+      <a href="#mstp:12,R--A,2,B->A">cut R -- A</a>: B offers A the path to the
+      root that it still has.
+    </p>
+    <p>
+      Each of these links restarts the topology, replays it up to the moment it
+      names and puts a red arrow on the frame it talks about.
+    </p>
+
+    <h2>Multiple links between two nodes</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -49,10 +96,16 @@ B @2,1  prio=8192
 A -- B
 A -- B
 A -- B
-</pre
-    >
+    </pre>
+    <p>
+      Three cables between the same pair of bridges. A is the root and offers
+      the path to it on all three. B picks one of them as its root port and
+      keeps the other two as alternates. Double-click the cable that forwards:
+      one of the spare cables takes over, and this needs a handshake, not a
+      timer.
+    </p>
 
-    <h1>Classic STP is slow</h1>
+    <h2>Classic STP is slow</h2>
     <pre class="mstp-topology">
 :protocol stp
 :forward-delay 4
@@ -67,10 +120,17 @@ Y @3,2
 R -- X
 R -- Y
 X -- Y
-</pre
-    >
+    </pre>
+    <p>
+      A triangle running the STP as a fallback protocol, with the shortest
+      timers it accepts. There is nothing to negotiate here: a port on its way
+      to forwarding waits in listening, then in learning, one forward delay in
+      each state, whatever the bridge at the other end says. The convergence
+      time in the bar is the time the handshake saves everywhere else on this
+      page.
+    </p>
 
-    <h1>Shared media brings back learning</h1>
+    <h2>A shared cable brings back learning</h2>
     <pre class="mstp-topology">
 :protocol rstp
 :forward-delay 4
@@ -80,10 +140,16 @@ R @0,0  prio=0
 A @2,1
 
 R -- A  R:no-p2p A:no-p2p
-</pre
-    >
+    </pre>
+    <p>
+      The <code>no-p2p</code> flag says the cable is not point to point, like a
+      segment behind a hub: there may be more than one bridge at the far end.
+      The proposal and agreement handshake is safe only with a single neighbour,
+      so it is off here. Both bridges speak RSTP, but the transition is slow due
+      to the learning state.
+    </p>
 
-    <h1>Root guard protects from a rogue</h1>
+    <h2>Root guard protects from a rogue</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -93,10 +159,15 @@ Rogue  @2,2  prio=0     icon=🦹
 
 Core -- Access
 Access -- Rogue  Access:root-guard
-</pre
-    >
+    </pre>
+    <p>
+      Rogue claims a priority of 0 and would take the root away from Core. The
+      Access port facing it has root guard, so it refuses the better BPDU: the
+      port stops forwarding and stays that way for as long as Rogue keeps
+      talking.
+    </p>
 
-    <h1>BPDU guard shuts down a rogue</h1>
+    <h2>BPDU guard shuts down a rogue</h2>
     <pre class="mstp-topology">
 :protocol rstp
 
@@ -104,10 +175,13 @@ Access @0,0  prio=4096
 Rogue  @2,1  prio=8192  icon=🦹
 
 Access -- Rogue  Access:bpdu-guard
-</pre
-    >
+    </pre>
+    <p>
+      BPDU guard is for the ports that should never see a BPDU at all. The first
+      frame from Rogue takes the port down.
+    </p>
 
-    <h1>Talking to a legacy STP bridge</h1>
+    <h2>Talking to an old STP bridge</h2>
     <pre class="mstp-topology">
 :protocol rstp
 :forward-delay 4
@@ -119,13 +193,19 @@ Old  @0,2  prio=8192  proto=stp  icon=🐌
 
 New -- Peer
 New -- Old
-</pre
-    >
+    </pre>
+    <p>
+      Old only speaks STP. New recognises the older frames coming from it and
+      answers with the same kind of frames, but on that port only. The details
+      of that port show the STP fallback, while the port towards Peer keeps the
+      rapid handshake. One old bridge slows down its own corner of the network,
+      not the whole network.
+    </p>
 
-    <h1>Too wide for one tree</h1>
+    <h2>A network too wide for one tree</h2>
     <pre class="mstp-topology">
-# With max-age set to 6, this 12-bridge has two bridges believing
-# they are root.
+# With max age set to 6, this chain of 12 bridges ends up with two
+# bridges that both believe they are the root.
 
 :protocol rstp
 :max-age 6
@@ -154,15 +234,16 @@ b7 -- b8
 b8 -- b9
 b9 -- b10
 b10 -- b11
-</pre
-    >
+    </pre>
+    <p>
+      A BPDU carries a message age that grows by one at every hop, and a bridge
+      drops the BPDU once that age reaches max age. This chain allows only six
+      hops from the root, so the far end never hears anything from b0 and picks
+      a root of its own. Two roots, two trees.
+    </p>
 
-    <h1>A loop through a switch with no STP</h1>
+    <h2>A loop through a switch with no STP</h2>
     <pre class="mstp-topology">
-# C runs no spanning tree, so it forwards nothing to A and B
-# about each other. Both ports facing it end up forwarding and
-# the loop A-B-C stays open.
-
 :protocol rstp
 
 A @0,0  prio=4096
@@ -172,15 +253,15 @@ C @1,2  proto=none  icon=🔌
 A -- B
 A -- C
 B -- C
-</pre
-    >
+    </pre>
+    <p>
+      C runs no spanning tree and drops the BPDUs, so A and B learn nothing
+      about each other through it. Both ports facing C end up forwarding and the
+      loop A-B-C stays open.
+    </p>
 
-    <h1>Adversarial convergence</h1>
+    <h2>Convergence with old information</h2>
     <pre class="mstp-topology">
-# Cut the R -- A cable. Each bridge keeps hearing the about a
-# root that is not present anymore. Convergence time is about
-# 10s.
-
 :protocol rstp
 
 R @1,0 prio=0
@@ -192,52 +273,28 @@ R -- A
 A -- B
 B -- C
 C -- A
-</pre
-    >
+    </pre>
+    <p>
+      Let it settle, then cut R -- A. The three remaining bridges pass around
+      what each of them still remembers of a root that has gone, and every one
+      of them believes the others. It takes about ten seconds to settle.
+    </p>
 
-    <h1>A one-way link and dispute</h1>
+    <h2>A one-way link and dispute</h2>
     <pre class="mstp-topology">
-# Demo for the dispute mechanism. Remove the link failure, wait
-# for the convergence, then put back the undirectional failure.
-# B don't hear from A and assume this is an edge port. Once
-# A receives the inferior BPDU from a designated port, it triggers
-# the dispute mechanism. The state is not visible because it is
-# cleared once A switch the port to the discarding state.
-
 :protocol rstp
 
 A @0,0  prio=4096
 B @2,1  prio=8192
 
 B -> A
-</pre
-    >
-
-    <h1>Following one BPDU</h1>
-    <pre class="mstp-topology">
-# Every port proposes on the first exchange, so six BPDUs cross
-# at once. The links below replay a moment and point at the one
-# worth watching.
-
-:protocol rstp
-
-R @1,0  prio=0
-A @0,2  prio=4096
-B @2,2  prio=8192
-
-R -- A
-R -- B
-A -- B
-</pre
-    >
+    </pre>
     <p>
-      Play <a href="#mstp:2">two steps</a>, then point at
-      <a href="#mstp:2,R->A">the proposal R sends to A</a> or at
-      <a href="#mstp:2,A->R,B->R">the two proposals R gets back</a>. On the next
-      step A sends R two frames, and
-      <a href="#mstp:3,A->R#2">the second one is its agreement</a>. Or let it
-      converge and <a href="#mstp:12,R--A,2,B->A">cut R -- A</a>: B proposes to
-      A the way to the root it still has.
+      Demo of the dispute mechanism. Repair the link, wait for the tree to
+      settle, then break one direction again. B hears nothing from A and treats
+      its port as an edge port. Once A receives the worse BPDU from a designated
+      port, the dispute mechanism starts. The state is not visible because A
+      clears it as soon as it moves the port to discarding.
     </p>
 
     <script type="module" src="dist/mstpd.mjs"></script>
