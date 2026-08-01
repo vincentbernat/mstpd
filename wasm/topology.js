@@ -42,6 +42,7 @@ const NODE_RADIUS = 24; // node radius in px
 const NO_STP_RADIUS = 16; // half the side of a bridge that runs no protocol
 const PORT_MARKER_OFFSET = NODE_RADIUS + 9; // how far from a node's centre its port marker sits
 const PAD = NODE_RADIUS + 24; // viewBox margin around the nodes
+const MAX_STRETCH = 2; // how far one axis of the grid may be pulled to fill the box
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
 const FLIGHT_MS = 500; // how long a BPDU takes to cross a link
@@ -455,9 +456,11 @@ async function mount(el) {
   };
 
   widgets.set(host, w);
-  applyViewBox(w);
+  applyShape(w);
   buildLegend(w);
   showErrors(w);
+
+  new ResizeObserver(() => relayout(w)).observe(svg);
 
   svg.addEventListener("pointerdown", (ev) => {
     if (w.mstp && ev.target === svg) select(w, null);
@@ -512,20 +515,24 @@ function stopAt(el) {
   return top - (parseFloat(getComputedStyle(el).marginTop) || 0);
 }
 
-// Pin a widget at a given offset from the top of the window (0, or negative
-// while it is on its way out), or put it back in the page. rect is where its
-// host sits and height how tall the widget is.
-function setStuck(w, top, rect, height) {
-  if (top === null) {
+// Pin a widget at the top of the window, or put it back in the page. rect is
+// where its host sits, and stop how far down the window the widget may reach.
+function setStuck(w, rect, stop) {
+  if (!rect) {
     w.root.classList.remove("mstp-stuck");
     w.root.style.top = w.root.style.left = w.root.style.width = "";
     w.host.style.height = "";
     return;
   }
-  w.host.style.height = `${height}px`;
-  w.root.style.top = `${top}px`;
+  // The width comes first, since a narrower widget has a shorter diagram, and
+  // the height is read with it. The host takes that height before the widget
+  // leaves the flow: a host with nothing in it and no height, even for the
+  // length of a measure, makes the browser move the page under our feet.
   w.root.style.left = `${rect.left}px`;
   w.root.style.width = `${rect.width}px`;
+  const height = w.root.getBoundingClientRect().height;
+  w.host.style.height = `${height}px`;
+  w.root.style.top = `${Math.min(0, stop - height)}px`;
   w.root.classList.add("mstp-stuck");
 }
 
@@ -542,8 +549,7 @@ function updateSticky() {
     // Above the window, and with something left of the room before the next
     // heading or topology.
     if (rect.top >= 0 || stop <= 0) return setStuck(w, null);
-    const height = w.root.getBoundingClientRect().height;
-    setStuck(w, Math.min(0, stop - height), rect, height);
+    setStuck(w, rect, stop);
   });
 }
 
@@ -565,16 +571,66 @@ window.addEventListener("resize", scheduleSticky);
 
 // -- layout ---------------------------------------------------------
 
-// Fit the viewBox to the static node coordinates and lock the SVG aspect ratio.
-function applyViewBox(w) {
+// The room the grid takes, margin included.
+function gridExtent(w) {
   const xs = w.model.nodes.map((n) => n.x * UNIT);
   const ys = w.model.nodes.map((n) => n.y * UNIT);
-  const minX = Math.min(0, ...xs) - PAD;
-  const minY = Math.min(0, ...ys) - PAD;
-  const vbW = Math.max(...xs, 0) - Math.min(...xs, 0) + 2 * PAD || 2 * PAD;
-  const vbH = Math.max(...ys, 0) - Math.min(...ys, 0) + 2 * PAD || 2 * PAD;
-  w.svg.setAttribute("viewBox", `${minX} ${minY} ${vbW} ${vbH}`);
-  w.svg.style.aspectRatio = `${vbW} / ${vbH}`;
+  const x0 = Math.min(0, ...xs);
+  const y0 = Math.min(0, ...ys);
+  return {
+    x0,
+    y0,
+    spanX: Math.max(0, ...xs) - x0,
+    spanY: Math.max(0, ...ys) - y0,
+  };
+}
+
+// Apply the aspect ratio matching the grid definition.
+function applyShape(w) {
+  const { spanX, spanY } = gridExtent(w);
+  w.svg.style.aspectRatio = `${spanX + 2 * PAD} / ${spanY + 2 * PAD}`;
+}
+
+// Layout the bridges in the widget. Nodes can spread a bit to use more space.
+function layout(w) {
+  const { x0, y0, spanX, spanY } = gridExtent(w);
+  const contentW = spanX + 2 * PAD;
+  const contentH = spanY + 2 * PAD;
+  const box = w.svg.getBoundingClientRect();
+  const scale =
+    box.width && box.height
+      ? Math.min(box.width / contentW, box.height / contentH)
+      : 0;
+  const vbW = scale ? box.width / scale : contentW;
+  const vbH = scale ? box.height / scale : contentH;
+
+  const extraX = Math.min(vbW - contentW, spanX * (MAX_STRETCH - 1));
+  const extraY = Math.min(vbH - contentH, spanY * (MAX_STRETCH - 1));
+  const stretchX = spanX ? (spanX + extraX) / spanX : 1;
+  const stretchY = spanY ? (spanY + extraY) / spanY : 1;
+  // Room an axis does not take is split between its two sides.
+  const left = PAD + (vbW - contentW - extraX) / 2;
+  const top = PAD + (vbH - contentH - extraY) / 2;
+
+  w.nodes.forEach((n, i) => {
+    const md = w.model.nodes[i];
+    n.x = left + (md.x * UNIT - x0) * stretchX;
+    n.y = top + (md.y * UNIT - y0) * stretchY;
+  });
+  w.svg.setAttribute("viewBox", `0 0 ${vbW} ${vbH}`);
+}
+
+// Recompute the layout.
+function relayout(w) {
+  if (!w.nodes.length) return;
+  layout(w);
+  render(w);
+  // The pills on their way carry the ends of their link with them.
+  const at = portGeometry(w);
+  for (const f of w.flights) {
+    const g = at.get(f.src);
+    if (g) ({ sx: f.sx, sy: f.sy, tx: f.tx, ty: f.ty } = g);
+  }
 }
 
 // The protocols in play: what each bridge asks for, or the global default. A
@@ -702,7 +758,7 @@ function exitEdit(w) {
 function saveEdit(w) {
   w.source = w.textarea.value;
   w.model = parseTopology(w.source);
-  applyViewBox(w);
+  applyShape(w);
   buildLegend(w);
   showErrors(w);
   leaveEdit(w);
@@ -751,8 +807,8 @@ function build(w) {
     }
     const node = {
       name: md.name,
-      x: md.x * UNIT,
-      y: md.y * UNIT,
+      x: 0, // set by layout(), which spreads the grid over the box
+      y: 0,
       prio: md.prio,
       protocol,
       icon: md.icon,
@@ -808,6 +864,7 @@ function build(w) {
   if (mstp) mstp.capture();
   markAction(w);
   showErrors(w);
+  layout(w);
   render(w);
   if (mstp) renderPanel(w);
 
