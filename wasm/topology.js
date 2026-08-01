@@ -1452,12 +1452,16 @@ function renderClock(w) {
   setClockField(w, w.clockTime, `t=${w.time}s`);
   w.clockTime.title = `Step #${stepNumber(w)}`;
   setClockField(w, w.clockBpdu, `${w.bpdus} BPDUs`);
-  if (w.settledAt !== null)
+  if (w.settledAt !== null) {
     w.clockConv.textContent = `🌳 ${w.settledAt - w.actionAt}s`;
-  else if (!w.bpdus)
+    w.clockConv.title = "Convergence time";
+  } else if (!w.bpdus) {
     w.clockConv.replaceChildren(); // nothing has been sent yet
-  else if (!w.clockConv.firstElementChild)
+    w.clockConv.title = "";
+  } else if (!w.clockConv.firstElementChild) {
     w.clockConv.replaceChildren(h("i", { class: "mstp-wait", text: "⏳" }));
+    w.clockConv.title = "Convergence in progress";
+  }
 }
 
 function render(w) {
