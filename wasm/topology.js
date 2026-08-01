@@ -390,7 +390,7 @@ async function mount(el) {
 
   root.append(bar, stage, legend, errBox);
 
-  const host = h("div", { class: "mstp-host" });
+  const host = h("div", { class: "mstp-host lf-fullbleed" });
   const shadow = host.attachShadow({ mode: "open" });
   shadow.adoptedStyleSheets = [widgetStyleSheet()];
   shadow.append(root);
