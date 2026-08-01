@@ -2180,12 +2180,13 @@ function pcapButton(w, filename, port) {
 //   A->B  put a red arrow on the BPDUs A sends to B, so they can be told apart
 //         from the others crossing the diagram; the link is picked as above,
 //         and A->B#2 takes only the second BPDU the port sends in the step
+//   ...   leave the clock running at the end, as the Start button would
 //
 // So #mstp:B--C,30 restarts the topology, cuts the link B -- C and plays 30
 // steps. Only the last step is animated, so that is where an arrow shows:
 // #mstp:B--C,30,B->D marks what B sends to D there, and goes on marking it if
-// the widget is stepped on. An arrow op moves nothing, so it can sit anywhere
-// in the list.
+// the widget is stepped on. Neither an arrow nor ... moves the sim on, so they
+// can sit anywhere in the list.
 
 // Host element -> widget, to find the widget a control link drives.
 const widgets = new WeakMap();
@@ -2202,6 +2203,7 @@ function closestWidget(from) {
 
 const SEEK_TOGGLE = /^(.+?)\s*--\s*(.+?)(?:\s*:(\d+))?$/;
 const SEEK_ARROW = /^(.+?)\s*->\s*(.+?)(?:\s*:(\d+))?(?:\s*#(\d+))?$/;
+const SEEK_RUN = "...";
 
 // The link an op names, as an index into w.links, or -1. nth picks one when
 // several links join the same two bridges.
@@ -2233,9 +2235,11 @@ function seek(w, spec) {
     .map((tok) => tok.trim())
     .filter(Boolean);
   // The arrows are set aside: they mark BPDUs instead of moving the sim on, so
-  // they are taken first and their place in the list does not matter.
+  // they are taken first and their place in the list does not matter. Same for
+  // the ask to go on playing, which only matters once the rest is done.
   const arrows = all.filter((op) => SEEK_ARROW.test(op));
-  const ops = all.filter((op) => !SEEK_ARROW.test(op));
+  const keepPlaying = all.includes(SEEK_RUN);
+  const ops = all.filter((op) => op !== SEEK_RUN && !SEEK_ARROW.test(op));
 
   for (const op of arrows) {
     const m = op.match(SEEK_ARROW);
@@ -2275,6 +2279,7 @@ function seek(w, spec) {
         : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
   );
   if (playLast) stepOnce(w);
+  if (keepPlaying) setRunning(w, true);
 }
 
 document.addEventListener("click", (ev) => {
