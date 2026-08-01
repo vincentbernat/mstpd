@@ -136,7 +136,6 @@
     flex: 0 1 auto;
     min-height: 0;
     display: flex;
-    flex-wrap: wrap;
     align-items: stretch;
   }
 
@@ -148,7 +147,6 @@
 
     svg {
       width: 100%;
-      max-height: 70vh;
       background: var(--fill);
       touch-action: manipulation;
       user-select: none;
@@ -181,9 +179,9 @@
     border-left: 1px solid var(--line);
   }
 
-  /* The body fills the panel (whose height the canvas sets) and scrolls, so a
-     long panel never makes the row taller than the diagram. The editor takes
-     the same place. */
+  /* The body fills the panel (whose height the stage sets) and scrolls, so a
+     long panel never makes the widget taller. The editor takes the same
+     place. */
   .mstp-panel-body,
   .mstp-edit-area {
     position: absolute;
@@ -315,7 +313,7 @@
   }
 
   .mstp-legend {
-    flex: 1 0 100%;
+    flex: none;
     display: flex;
     flex-wrap: wrap;
     gap: 0.2em 0.8em;

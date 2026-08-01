@@ -382,12 +382,12 @@ async function mount(el) {
   textarea.hidden = true;
   panel.append(panelBody, textarea);
   const legend = h("div", { class: "mstp-legend" });
-  stage.append(canvas, panel, legend);
+  stage.append(canvas, panel);
 
   const errBox = h("div", { class: "mstp-errors" });
   errBox.hidden = true;
 
-  root.append(bar, stage, errBox);
+  root.append(bar, stage, legend, errBox);
 
   const host = h("div", { class: "mstp-host" });
   const shadow = host.attachShadow({ mode: "open" });
