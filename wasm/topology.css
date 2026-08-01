@@ -11,7 +11,6 @@
   --accent-fill-hover: #2a75;
   --mono: ui-monospace, monospace;
   --max-height: 50vh;
-  --short: no; /* the widget is short, see the media query below */
 
   font-size: 1rem;
   font-family: system-ui, sans-serif;
@@ -353,13 +352,9 @@
     font-family: var(--mono);
   }
 
-  @media (max-height: 40em) {
-    --short: yes;
-  }
-
   /* Narrow/short: shrink the type and drop the icons, to leave the diagram as
-     much room as possible. Last, so it wins over the sizes set above. */
-  @container (max-width: 36em) or style(--short: yes) {
+     much room as possible. */
+  @container (max-width: 36em) {
     .mstp-bar {
       font-size: 0.8em;
     }
@@ -373,7 +368,6 @@
       display: none;
     }
 
-    /* Two lines of clock are enough: the time and the count share the first. */
     .mstp-clock {
       font-size: 0.8em;
       line-height: 1.15;
@@ -383,6 +377,18 @@
       &:not(:empty)::before {
         content: none;
       }
+    }
+  }
+
+  @media (max-height: 40em) {
+    .mstp-bar {
+      font-size: 0.7em;
+    }
+    .mstp-panel {
+      font-size: 0.7em;
+    }
+    .mstp-legend {
+      font-size: 0.5em;
     }
   }
 
