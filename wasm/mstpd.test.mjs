@@ -34,6 +34,43 @@ function buildTriangle(mstp) {
   return { a, b, c, a1, a2, b1, b2, c1, c2, ab, ac, bc };
 }
 
+// A cols x rows grid of bridges. Each one is wired to its neighbour on the
+// right, the one below and the one down to the right, so there are far more
+// cables than a tree needs and plenty of ports end up blocking. Priorities
+// alternate, which puts the root somewhere in the middle. Returns the bridges
+// and every port.
+function buildGrid(mstp, cols, rows) {
+  const nodes = [];
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++)
+      nodes.push({
+        br: mstp.createBridge(`b${x}-${y}`, {
+          priority: 4096 * (1 + ((x + y) % 15)),
+        }),
+        x,
+        y,
+        next: 1,
+      });
+  const at = (x, y) => nodes.find((n) => n.x === x && n.y === y);
+  const ports = [];
+  const wire = (u, v) => {
+    if (!v) return;
+    const p = u.br.addPort(`${u.x}${u.y}-${v.x}${v.y}`, { portno: u.next++ });
+    const q = v.br.addPort(`${v.x}${v.y}-${u.x}${u.y}`, { portno: v.next++ });
+    mstp.link(p, q);
+    p.enable();
+    q.enable();
+    ports.push(p, q);
+  };
+  for (const n of nodes) {
+    wire(n, at(n.x + 1, n.y));
+    wire(n, at(n.x, n.y + 1));
+    wire(n, at(n.x + 1, n.y + 1));
+  }
+  for (const n of nodes) n.br.enable();
+  return { nodes, ports };
+}
+
 test("two bridges: lower priority becomes root", async () => {
   const mstp = await loadMSTPD();
   const a = mstp.createBridge("a", { priority: 4096 });
@@ -1490,4 +1527,77 @@ test("capture: pcap(port) downloads only that link", async () => {
 
   // An unknown port yields an empty (header-only) capture.
   assert.equal(mstp.pcap(9999).length, 24, "unknown port matches nothing");
+});
+
+test("rolling back heap leaves no trace", async () => {
+  // Check if peeking to check for convergence in the topology widget works as
+  // we expect: we should be able to manipulate the heap to restore the state of
+  // the simulation to a previous state. A big topology is run twice here, once
+  // straight and once with a look ahead after every second, and the two runs
+  // must be impossible to tell apart: same state at the end, same BPDUs left on
+  // the wire, and the same capture.
+  const SECONDS = 30;
+  const AHEAD = 40;
+
+  // Keep the core's memory, run the simulation on, then put the memory back.
+  // Everything the core knows lives in that memory, so this leaves no trace.
+  // Returns the role and state of every port on entry, then after each second.
+  const peek = (mstp, ports, seconds) => {
+    const sig = () => ports.map((p) => `${p.role()}/${p.state()}`).join(" ");
+    const saved = mstp.m.HEAPU8.slice();
+    const ahead = [sig()];
+    for (let i = 0; i < seconds; i++) {
+      mstp.step(1);
+      ahead.push(sig());
+    }
+    // Growing the memory hands out a new view, so ask for it again.
+    const back = mstp.m.HEAPU8;
+    back.set(saved.subarray(0, back.length));
+    return ahead;
+  };
+
+  const run = async (looking) => {
+    const mstp = await loadMSTPD();
+    const { ports } = buildGrid(mstp, 10, 8); // 80 bridges, 205 links
+    mstp.capture();
+    let moved = false;
+    for (let s = 0; s < SECONDS; s++) {
+      mstp.step(1);
+      if (!looking) continue;
+      // A look ahead that never sees the ports move would prove nothing.
+      if (new Set(peek(mstp, ports, AHEAD)).size > 1) moved = true;
+    }
+    return {
+      ports: ports.length,
+      topo: mstp.topology(),
+      queued: mstp.queuedBPDUs(),
+      pcap: mstp.pcap(),
+      moved,
+    };
+  };
+
+  const plain = await run(false);
+  const looked = await run(true);
+
+  assert.equal(plain.ports, 410, "the grid is as large as expected");
+  assert.ok(
+    plain.topo.bridges.some((b) => b.ports.some((p) => p.role === "Alternate")),
+    "the extra cables leave blocked ports",
+  );
+  assert.ok(looked.moved, "the look ahead saw the ports move");
+  assert.deepEqual(looked.topo, plain.topo, "the ports end up the same way");
+  assert.deepEqual(
+    looked.queued,
+    plain.queued,
+    "the BPDUs waiting on the wire are back",
+  );
+  assert.equal(
+    looked.pcap.length,
+    plain.pcap.length,
+    "the capture holds as many bytes",
+  );
+  assert.ok(
+    Buffer.from(looked.pcap).equals(Buffer.from(plain.pcap)),
+    "the capture is untouched, timestamps included",
+  );
 });

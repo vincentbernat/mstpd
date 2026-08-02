@@ -48,7 +48,7 @@ const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
 const FLIGHT_MS = 500; // how long a BPDU takes to cross a link
 const PILL_GAP = 90; // how far apart BPDUs leaving the same port at once set off
 const MAX_WAVES = 50; // give up on a cascade that never settles
-const QUIET_TIME = 4; // seconds without a port change before we call it converged
+const LOOKAHEAD_PAD = 10; // seconds the peek adds to the timers, to be safe
 
 // Port/link state -> colour
 const STATE_COLOR = {
@@ -429,9 +429,11 @@ async function mount(el) {
     // Convergence: the ports are settled once none of them changes role or
     // state any more. sig is the fingerprint we compare from second to second,
     // actionAt the time of the last cut or restore, changeAt the time of the
-    // last change, and settledAt the changeAt of the last quiet second (null
-    // while the ports are still moving).
+    // last change, and settledAt that same time once the peek ahead has shown
+    // nothing else is coming (null while the ports are still moving). lookahead
+    // is how far that peek goes.
     sig: "",
+    lookahead: 0,
     actionAt: 0,
     changeAt: 0,
     settledAt: null,
@@ -862,6 +864,7 @@ function build(w) {
   // Record every BPDU from now on so the panel can offer a pcap download. A
   // rebuild starts a fresh capture.
   if (mstp) mstp.capture();
+  w.lookahead = lookaheadFor(w);
   markAction(w);
   showErrors(w);
   layout(w);
@@ -877,12 +880,47 @@ function build(w) {
 //
 // The topology has converged once every port has stopped changing role and
 // state. BPDUs keep flowing after that (hellos, and the topology change flag
-// for a few more seconds), so the ports are what we watch.
+// for a few more seconds), so the ports are what we watch. The core is run on
+// ahead to check if the topology changes.
+
+// The role and state of every port, as one string to compare. Each port is read
+// on its own: the fingerprint is taken again for every second the peek below
+// runs.
 function portSig(w) {
   const parts = [];
-  for (const [handle, ps] of snapshot(w).ports)
-    parts.push(`${handle}:${ps.role}:${ps.state}`);
+  for (const n of w.nodes)
+    for (const p of n.ports) parts.push(`${p.handle}:${p.role()}:${p.state()}`);
   return parts.join(" ");
+}
+
+// How far the peek has to go to be sure. A port waits two forward delays before
+// it forwards, and what a bridge said last takes a max age to expire, so nothing
+// can happen later than that.
+function lookaheadFor(w) {
+  const b0 = snapshot(w).topo?.bridges[0];
+  return b0 ? 2 * b0.forward_delay + b0.max_age + LOOKAHEAD_PAD : 0;
+}
+
+// Room to keep the core's memory during a peek. Only one widget peeks at a
+// time, so a single buffer, as large as the largest core met so far, does.
+let peekBuf = new Uint8Array(0);
+
+// Run the core ahead and tell whether the ports keep the fingerprint they have
+// now. Everything the core knows sits in its WebAssembly memory, so a copy of
+// it, put back at the end, undoes the peek.
+function portsStayPut(w, sig) {
+  const heap = w.mstp.m.HEAPU8;
+  if (peekBuf.length < heap.length) peekBuf = new Uint8Array(heap.length);
+  peekBuf.set(heap);
+  let same = true;
+  for (let i = 0; i < w.lookahead && same; i++) {
+    w.mstp.step(1);
+    same = portSig(w) === sig;
+  }
+  // Growing the memory hands out a new view, so ask for it again.
+  const back = w.mstp.m.HEAPU8;
+  back.set(peekBuf.subarray(0, back.length));
+  return same;
 }
 
 // Start measuring again: on a rebuild, and on every link cut or restore. The
@@ -894,17 +932,17 @@ function markAction(w) {
   renderClock(w);
 }
 
-// After a second has been simulated: note whether anything moved. Once the
-// ports have been quiet for QUIET_TIME, record the convergebce time.
+// After a second has been simulated, with nothing left on the wire: note
+// whether anything moved, and record the convergence time as soon as the ports
+// are done moving. Called once per second.
 function trackConvergence(w) {
   const sig = portSig(w);
   if (sig !== w.sig) {
     w.sig = sig;
     w.changeAt = w.time;
     w.settledAt = null;
-  } else if (w.settledAt === null && w.time - w.changeAt >= QUIET_TIME) {
-    w.settledAt = w.changeAt;
   }
+  if (w.settledAt === null && portsStayPut(w, sig)) w.settledAt = w.changeAt;
 }
 
 // -- history / step back --------------------------------------------
