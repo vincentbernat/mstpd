@@ -113,8 +113,12 @@
   }
   /* A step is a single click, so its effect on the clock is easy to miss. */
   .mstp-bump {
+    --bump: var(--accent-fill-hover);
     border-radius: 4px;
     animation: mstp-bump 1s ease-out;
+  }
+  .mstp-bump-copy {
+    --bump: #a4f8;
   }
 
   .mstp-slow {
@@ -424,8 +428,8 @@
 @keyframes mstp-bump {
   0%,
   35% {
-    background: var(--accent-fill-hover);
-    box-shadow: 0 0 0 3px var(--accent-fill-hover);
+    background: var(--bump);
+    box-shadow: 0 0 0 3px var(--bump);
   }
   100% {
     background: transparent;

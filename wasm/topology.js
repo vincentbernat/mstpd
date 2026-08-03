@@ -482,6 +482,7 @@ async function mount(el) {
   slowBox.onchange = () => {
     w.speed = slowBox.checked ? SLOW_FACTOR : 1;
   };
+  clock.addEventListener("dblclick", () => copySeekLink(w, clock));
 
   try {
     w.mstp = await loadMSTPD({
@@ -1474,6 +1475,13 @@ function stateLabel(w, state) {
 
 // -- rendering ------------------------------------------------------
 
+// Flash an element to catch the eye. Any extra class picks another colour.
+function bump(el, ...extra) {
+  el.classList.remove("mstp-bump", "mstp-bump-copy");
+  void el.offsetWidth; // let the browser catch up, so the flash starts again
+  el.classList.add("mstp-bump", ...extra);
+}
+
 // Update a clock field, flashing it when its value changes. Only while the
 // widget is not running: a flash every second would be a strobe, and it is the
 // single click of a step that is easy to miss.
@@ -1481,9 +1489,7 @@ function setClockField(w, el, text) {
   if (el.textContent === text) return;
   el.textContent = text;
   if (w.running) return;
-  el.classList.remove("mstp-bump");
-  void el.offsetWidth; // let the browser catch up, so the flash starts again
-  el.classList.add("mstp-bump");
+  bump(el);
 }
 
 function renderClock(w) {
@@ -2318,6 +2324,51 @@ function seek(w, spec) {
   );
   if (playLast) stepOnce(w);
   if (keepPlaying) setRunning(w, true);
+}
+
+// Where a link sits among those joining the same two bridges, the way pickLink
+// counts them. Empty when it is the only one: the op needs no number then.
+function linkNth(w, e) {
+  const same = w.links.filter(
+    (l) =>
+      (l.a.name === e.a.name && l.b.name === e.b.name) ||
+      (l.a.name === e.b.name && l.b.name === e.a.name),
+  );
+  return same.length > 1 ? `:${same.indexOf(e) + 1}` : "";
+}
+
+// The op list that leads to the state on show: the cuts and restores of the
+// history with the step counts between them.
+function seekOps(w) {
+  const ops = [];
+  let steps = 0;
+  const flush = () => {
+    if (steps) ops.push(String(steps));
+    steps = 0;
+  };
+  for (let i = 0; i < w.cursor; i++) {
+    const op = w.history[i];
+    if (op.t === "toggle") {
+      flush();
+      const e = w.links[op.link];
+      ops.push(`${e.a.name}--${e.b.name}${linkNth(w, e)}`);
+    } else if (op.t === "tick" || w.history[i - 1]?.t !== "tick") {
+      steps += 1; // a deliver landing a tick's wave is part of that same step
+    }
+  }
+  flush();
+  return ops;
+}
+
+// Put the link that plays the current state back on the clipboard, and flash
+// the clock to say it has been taken.
+function copySeekLink(w, el) {
+  if (!w.mstp || w.editing) return;
+  const link = `#mstp:${seekOps(w).join(",")}`;
+  navigator.clipboard?.writeText(link).then(
+    () => bump(el, "mstp-bump-copy"),
+    (err) => console.warn(`mstp: cannot copy "${link}" (${err})`),
+  );
 }
 
 document.addEventListener("click", (ev) => {
