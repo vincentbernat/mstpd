@@ -417,6 +417,7 @@ async function mount(el) {
     clockTime,
     clockBpdu,
     clockConv,
+    slowBox,
     speed: 1, // real seconds per simulated second (snail bumps it to SLOW_FACTOR)
     mstp: null,
     nodes: [],
@@ -479,9 +480,7 @@ async function mount(el) {
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
   discardBtn.onclick = () => exitEdit(w);
-  slowBox.onchange = () => {
-    w.speed = slowBox.checked ? SLOW_FACTOR : 1;
-  };
+  slowBox.onchange = () => setSlow(w, slowBox.checked);
   clock.addEventListener("dblclick", () => copySeekLink(w, clock));
 
   try {
@@ -1282,6 +1281,13 @@ function setRunning(w, on) {
     stopLoop(w);
     showRunning(w, false);
   }
+}
+
+// Slow motion, with the box kept in step: the loop reads the speed each frame,
+// so a change takes effect straight away.
+function setSlow(w, on) {
+  w.slowBox.checked = on;
+  w.speed = on ? SLOW_FACTOR : 1;
 }
 
 // -- BPDU animation -------------------------------------------------
@@ -2234,11 +2240,13 @@ function pcapButton(w, filename, port) {
 //         from the others crossing the diagram; the link is picked as above,
 //         and A->B#2 takes only the second BPDU the port sends in the step
 //   ...   leave the clock running at the end, as the Start button would
+//   @     turn slow motion on, as the snail box would; without it the box is
+//         left as the reader set it, so @,... plays the end in slow motion
 //
 // So #mstp:B--C,30 restarts the topology, cuts the link B -- C and plays 30
 // steps. Only the last step is animated, so that is where an arrow shows:
 // #mstp:B--C,30,B->D marks what B sends to D there, and goes on marking it if
-// the widget is stepped on. Neither an arrow nor ... moves the sim on, so they
+// the widget is stepped on. An arrow, ... and @ do not move the sim on, so they
 // can sit anywhere in the list.
 
 // Host element -> widget, to find the widget a control link drives.
@@ -2257,6 +2265,7 @@ function closestWidget(from) {
 const SEEK_TOGGLE = /^(.+?)\s*--\s*(.+?)(?:\s*:(\d+))?$/;
 const SEEK_ARROW = /^(.+?)\s*->\s*(.+?)(?:\s*:(\d+))?(?:\s*#(\d+))?$/;
 const SEEK_RUN = "...";
+const SEEK_SNAIL = "@";
 
 // The link an op names, as an index into w.links, or -1. nth picks one when
 // several links join the same two bridges.
@@ -2296,7 +2305,12 @@ function seek(w, spec) {
   // the ask to go on playing, which only matters once the rest is done.
   const arrows = all.filter((op) => SEEK_ARROW.test(op));
   const keepPlaying = all.includes(SEEK_RUN);
-  const ops = all.filter((op) => op !== SEEK_RUN && !SEEK_ARROW.test(op));
+  const ops = all.filter(
+    (op) => op !== SEEK_RUN && op !== SEEK_SNAIL && !SEEK_ARROW.test(op),
+  );
+  // Only the snail op says anything about slow motion: without it the box stays
+  // as the reader set it.
+  if (all.includes(SEEK_SNAIL)) setSlow(w, true);
 
   for (const op of arrows) {
     const m = op.match(SEEK_ARROW);
