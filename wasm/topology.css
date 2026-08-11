@@ -153,14 +153,19 @@
       fill: currentColor;
     }
 
-    /* Feedback for stepping back: the rewound diagram comes in from the left
-       while the copy of the one it replaces leaves to the right. Both move
-       together, so the pair reads as travelling back one step. */
-    &.mstp-rewind {
+    /* Feedback for jumping to another step: the new diagram comes in from one
+       side while the copy of the one it replaces leaves by the other. Both move
+       together. */
+    &.mstp-slide {
+      --slide: -1; /* back: in from the left, out to the right */
       overflow: hidden;
 
+      &.mstp-slide-fwd {
+        --slide: 1;
+      }
+
       svg {
-        animation: mstp-rewind-in 0.3s ease-out;
+        animation: mstp-slide-in 0.2s ease-out;
       }
       .mstp-ghost {
         position: absolute;
@@ -168,7 +173,7 @@
         left: 0;
         z-index: 1;
         pointer-events: none;
-        animation: mstp-rewind-out 0.3s ease-out forwards;
+        animation: mstp-slide-out 0.2s ease-out forwards;
       }
     }
   }
@@ -437,21 +442,21 @@
   }
 }
 
-@keyframes mstp-rewind-in {
+@keyframes mstp-slide-in {
   from {
-    transform: translateX(-100%);
+    transform: translateX(calc(var(--slide) * 100%));
   }
   to {
     transform: none;
   }
 }
 
-@keyframes mstp-rewind-out {
+@keyframes mstp-slide-out {
   from {
     transform: none;
   }
   to {
-    transform: translateX(100%);
+    transform: translateX(calc(var(--slide) * -100%));
   }
 }
 

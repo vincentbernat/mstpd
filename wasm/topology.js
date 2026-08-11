@@ -474,7 +474,7 @@ async function mount(el) {
     setRunning(w, false);
     build(w);
     select(w, null);
-    animateRewind(w);
+    animateSlide(w);
   };
   editBtn.onclick = () => enterEdit(w);
   saveBtn.onclick = () => saveEdit(w);
@@ -1047,20 +1047,21 @@ function snapshotCanvas(w) {
   return ghost;
 }
 
-// Push the old diagram out to the right while the rewound one comes in from the
-// left, the way a step back travels.
-function animateRewind(w, ghost) {
+// Push the old diagram out one side while the new one comes in from the other,
+// the way the move travels: to the right for a step back, to the left ahead.
+function animateSlide(w, ghost, back) {
   w.canvas.querySelector(".mstp-ghost")?.remove();
-  w.canvas.classList.remove("mstp-rewind");
+  w.canvas.classList.remove("mstp-slide", "mstp-slide-fwd");
   if (!ghost) return;
   void w.canvas.offsetWidth; // let the browser catch up, so the slide starts again
   w.canvas.append(ghost);
-  w.canvas.classList.add("mstp-rewind");
+  w.canvas.classList.add("mstp-slide");
+  w.canvas.classList.toggle("mstp-slide-fwd", !back);
   ghost.addEventListener(
     "animationend",
     () => {
       ghost.remove();
-      w.canvas.classList.remove("mstp-rewind");
+      w.canvas.classList.remove("mstp-slide", "mstp-slide-fwd");
     },
     { once: true },
   );
@@ -1079,6 +1080,14 @@ function stepNumber(w) {
   return n;
 }
 
+// How far along the history the widget stands: the steps on show, plus the cuts
+// and restores, which are not steps but still move the state on.
+function historyPos(w) {
+  let n = stepNumber(w);
+  for (let i = 0; i < w.cursor; i++) if (w.history[i].t === "toggle") n += 1;
+  return n;
+}
+
 // Move one step back: undo the step now on show. A deliver that landed a tick's
 // wave goes with that tick, a lone deliver or a toggle on its own.
 function stepBack(w) {
@@ -1091,7 +1100,7 @@ function stepBack(w) {
   )
     w.cursor -= 1;
   replay(w);
-  animateRewind(w, ghost);
+  animateSlide(w, ghost, true);
 }
 
 // The back button only works at rest, with at least one op to rewind.
@@ -2266,6 +2275,10 @@ function pickLink(w, a, b, nth) {
 function seek(w, spec) {
   if (!w.mstp || w.editing) return;
   setRunning(w, false);
+  // Where the widget stands now, to tell later which way the seek went, and the
+  // diagram to slide out on the way there.
+  const from = historyPos(w);
+  const ghost = snapshotCanvas(w);
   // Keep the selected bridge or link selected across the rebuild.
   const selected = w.selected;
   const sel =
@@ -2322,6 +2335,9 @@ function seek(w, spec) {
         ? { type: "link", ref: w.links[sel.index] }
         : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
   );
+  // The step held back counts too, it is about to play.
+  const to = historyPos(w) + (playLast ? 1 : 0);
+  if (to !== from) animateSlide(w, ghost, to < from);
   if (playLast) stepOnce(w);
   if (keepPlaying) setRunning(w, true);
 }
