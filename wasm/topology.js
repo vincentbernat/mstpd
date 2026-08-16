@@ -81,34 +81,6 @@ const BOB_MS = 200; // one swing in and out
 // Shown on the Start half of the run toggle, and put back when it stops.
 const RUN_TITLE = "Play steps one after another";
 
-// The two characters of the demo mode. Each one has a sprite sheet of 64x64
-// tiles, eight per line, with one line per animation.
-const STAN_ROWS = {
-  down: [0, 8], // line number, number of sprites
-  left: [1, 8],
-  right: [2, 8],
-  up: [3, 8],
-  attack: [4, 8],
-};
-const BLOBBY_ROWS = {
-  down: [0, 8],
-  up: [1, 8],
-  left: [2, 8],
-  right: [3, 8],
-  idle: [4, 6],
-  repair: [5, 6],
-};
-const TILE = 64; // a tile of a sprite sheet, in px
-const SPRITE_SIZE = 72; // how wide a tile is drawn, in diagram units
-const STAN_SPEED = 50; // diagram units a character covers per second
-const BLOBBY_SPEED = 40;
-const WALK_FPS = 10;
-const ACT_FPS = 8; // the attack and the repair
-const CUT_CHANCE = 1 / 4; // how often a swing goes through the cable
-const STAN_LIFT = 16; // how far over a cable Stan stands, so his sword meets it
-const REPAIR_LOOPS = 2; // repair animations played before the cable comes back
-const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
-
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 // -- grammar --------------------------------------------------------
@@ -1232,9 +1204,8 @@ function animate(w, now) {
     redrawState(w);
   }
 
-  if (w.demoOn) {
-    if (w.clock >= w.nextAt) demoSecond(w);
-  } else if (w.wave) {
+  if (w.demoOn) demoFrame(w, dt);
+  else if (w.wave) {
     // A step ends once the BPDUs it was playing have been delivered.
     if (w.clock >= w.wave.landAt) {
       deliverWave(w);
@@ -1246,7 +1217,6 @@ function animate(w, now) {
     if (w.stepping && !w.wave) return endStep(w);
   }
 
-  if (w.demoOn) demoFrame(w, dt);
   drawPills(w);
   w.raf = requestAnimationFrame((t) => animate(w, t));
 }
@@ -1342,210 +1312,243 @@ function setSlow(w, on) {
 // The topology plays by itself while two characters work on the cables. Stan
 // walks to a cable and swings his sword at it until it cuts. Blobby follows him
 // to repair the cable and wait for the next cut.
-function startDemo(w) {
-  w.demoOn = true;
-  w.root.classList.add("mstp-demo");
-  build(w);
-  w.demo = cast(w);
-  setRunning(w, true);
-  scheduleSticky(); // a demo never stays at the top of the window
-}
-
-// The two characters, side by side in the bottom left corner where the demo
-// starts them. From there they follow the cables and stay where those leave
-// them.
-function cast(w) {
-  const y = w.svg.viewBox.baseVal.height - SPRITE_SIZE / 2;
-  return {
-    blobby: sprite(w.blobbyEl, BLOBBY_ROWS, BLOBBY_SPEED, SPRITE_SIZE / 2, y),
-    stan: sprite(w.stanEl, STAN_ROWS, STAN_SPEED, SPRITE_SIZE * 1.5, y),
+const { startDemo, demoFrame } = (() => {
+  // The two characters. Each one has a sprite sheet of 64x64 tiles, eight per
+  // line, with one line per animation.
+  const STAN_ROWS = {
+    down: [0, 8], // line number, number of sprites
+    left: [1, 8],
+    right: [2, 8],
+    up: [3, 8],
+    attack: [4, 8],
   };
-}
-
-// One character. rows is its sheet and speed how fast it crosses the diagram.
-// anim names the line of the sheet it plays, frame the tile in that line and t
-// the time spent on it. link is the cable it works on, mode what it does there,
-// and dir the way it faces while it walks.
-function sprite(el, rows, speed, x, y) {
-  return {
-    el,
-    rows,
-    speed,
-    x,
-    y,
-    anim: "down", // whatever it does next puts its own line up
-    dir: "down",
-    frame: 0,
-    t: 0,
-    loops: 0,
-    mode: "walk",
-    link: null,
+  const BLOBBY_ROWS = {
+    down: [0, 8],
+    up: [1, 8],
+    left: [2, 8],
+    right: [3, 8],
+    idle: [4, 6],
+    repair: [5, 6],
   };
-}
+  const TILE = 64; // a tile of a sprite sheet, in px
+  const SPRITE_SIZE = 72; // how wide a tile is drawn, in diagram units
+  const STAN_SPEED = 50; // diagram units a character covers per second
+  const BLOBBY_SPEED = 40;
+  const WALK_FPS = 10;
+  const ACT_FPS = 8; // the attack and the repair
+  const CUT_CHANCE = 1 / 4; // how often a swing goes through the cable
+  const STAN_LIFT = 16; // how far over a cable Stan stands, so his sword meets it
+  const REPAIR_LOOPS = 2; // repair animations played before the cable comes back
+  const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
 
-// A cable the demo counts as down: a plain link that is cut, or a one-way link
-// with its fault on.
-const isCut = (e) => (e.oneway ? e.faulty : e.link.broken);
-
-// The middle of a cable, where a character stands to work on it.
-const linkMid = (e) => [
-  (e.geom.x1 + e.geom.x2) / 2,
-  (e.geom.y1 + e.geom.y2) / 2,
-];
-
-// Cut or repair a cable from the demo. Same as a double-click, without the
-// selection a click leaves behind.
-function demoToggle(w, e) {
-  applyToggle(w, e);
-  redrawState(w);
-}
-
-// Move a character towards a point and tell whether it is there. Its heading
-// picks the line of the sheet its walk plays.
-function walkTo(sp, tx, ty, dt) {
-  const dx = tx - sp.x;
-  const dy = ty - sp.y;
-  const dist = Math.hypot(dx, dy);
-  const step = (sp.speed * dt) / 1000;
-  if (dist <= step) {
-    sp.x = tx;
-    sp.y = ty;
-    return true;
+  function startDemo(w) {
+    w.demoOn = true;
+    w.root.classList.add("mstp-demo");
+    build(w);
+    w.demo = cast(w);
+    setRunning(w, true);
+    scheduleSticky(); // a demo never stays at the top of the window
   }
-  sp.x += (dx / dist) * step;
-  sp.y += (dy / dist) * step;
-  if (Math.abs(dx) > Math.abs(dy)) sp.dir = dx > 0 ? "right" : "left";
-  else sp.dir = dy > 0 ? "down" : "up";
-  return false;
-}
 
-// Play an animation on: move to the tile the elapsed time asks for, and return
-// how many times the line has been played through since the last call.
-function playFrames(sp, fps, dt) {
-  const count = sp.rows[sp.anim][1];
-  sp.t += dt;
-  const n = Math.floor((sp.t * fps) / 1000);
-  sp.t -= (n * 1000) / fps;
-  sp.frame += n;
-  const loops = Math.floor(sp.frame / count);
-  sp.frame %= count;
-  return loops;
-}
-
-// Start another animation from its first tile.
-function playAnim(sp, anim) {
-  sp.anim = anim;
-  sp.frame = 0;
-  sp.t = 0;
-  sp.loops = 0;
-}
-
-// The cable Stan goes for next: one of those still up, except the one where
-// Blobby is.
-function nextVictim(w, spare) {
-  const up = w.links.filter((e) => !isCut(e) && e !== spare);
-  const pool = up.length ? up : w.links;
-  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
-}
-
-// Stan never rests: he walks to a cable and swings at it until it gives, then
-// goes for the next one. A swing that misses is simply played again.
-function stepStan(w, sp, dt) {
-  if (sp.mode === "attack") {
-    if (!playFrames(sp, ACT_FPS, dt)) return;
-    if (isCut(sp.link) || Math.random() >= CUT_CHANCE) return;
-    demoToggle(w, sp.link);
-    sp.link = null;
-    sp.mode = "walk";
-    return;
+  // The two characters, side by side in the bottom left corner where the demo
+  // starts them. From there they follow the cables and stay where those leave
+  // them.
+  function cast(w) {
+    const y = w.svg.viewBox.baseVal.height - SPRITE_SIZE / 2;
+    return {
+      blobby: sprite(w.blobbyEl, BLOBBY_ROWS, BLOBBY_SPEED, SPRITE_SIZE / 2, y),
+      stan: sprite(w.stanEl, STAN_ROWS, STAN_SPEED, SPRITE_SIZE * 1.5, y),
+    };
   }
-  if (!sp.link) sp.link = nextVictim(w, w.demo.blobby.link);
-  if (!sp.link) return;
-  const [tx, ty] = linkMid(sp.link);
-  if (walkTo(sp, tx, ty - STAN_LIFT, dt)) {
-    sp.mode = "attack";
-    playAnim(sp, "attack");
-    return;
+
+  // One character. rows is its sheet and speed how fast it crosses the diagram.
+  // anim names the line of the sheet it plays, frame the tile in that line and t
+  // the time spent on it. link is the cable it works on, mode what it does there,
+  // and dir the way it faces while it walks.
+  function sprite(el, rows, speed, x, y) {
+    return {
+      el,
+      rows,
+      speed,
+      x,
+      y,
+      anim: "down", // whatever it does next puts its own line up
+      dir: "down",
+      frame: 0,
+      t: 0,
+      loops: 0,
+      mode: "walk",
+      link: null,
+    };
   }
-  if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
-  playFrames(sp, WALK_FPS, dt);
-}
 
-// Blobby takes the cables that are down, one at a time, and waits by the last
-// one it repaired.
-function stepBlobby(w, sp, dt) {
-  if (sp.mode === "repair") {
-    sp.loops += playFrames(sp, ACT_FPS, dt);
-    if (sp.loops < REPAIR_LOOPS) return;
-    if (isCut(sp.link)) demoToggle(w, sp.link);
-    sp.mode = "walk"; // sp.link stays: the repaired cable is where Blobby waits
-    return;
+  // A cable the demo counts as down: a plain link that is cut, or a one-way link
+  // with its fault on.
+  const isCut = (e) => (e.oneway ? e.faulty : e.link.broken);
+
+  // The middle of a cable, where a character stands to work on it.
+  const linkMid = (e) => [
+    (e.geom.x1 + e.geom.x2) / 2,
+    (e.geom.y1 + e.geom.y2) / 2,
+  ];
+
+  // Cut or repair a cable from the demo. Same as a double-click, without the
+  // selection a click leaves behind.
+  function demoToggle(w, e) {
+    applyToggle(w, e);
+    redrawState(w);
   }
-  // The cable it is already on its way to while that one is still down, else
-  // the next one down. With every cable up, sp.link keeps the last of them and
-  // Blobby waits by it.
-  const down = sp.link && isCut(sp.link) ? sp.link : w.links.find(isCut);
-  if (!down) {
-    if (sp.anim !== "idle") playAnim(sp, "idle");
-    playFrames(sp, ACT_FPS, dt);
-    return;
+
+  // Move a character towards a point and tell whether it is there. Its heading
+  // picks the line of the sheet its walk plays.
+  function walkTo(sp, tx, ty, dt) {
+    const dx = tx - sp.x;
+    const dy = ty - sp.y;
+    const dist = Math.hypot(dx, dy);
+    const step = (sp.speed * dt) / 1000;
+    if (dist <= step) {
+      sp.x = tx;
+      sp.y = ty;
+      return true;
+    }
+    sp.x += (dx / dist) * step;
+    sp.y += (dy / dist) * step;
+    if (Math.abs(dx) > Math.abs(dy)) sp.dir = dx > 0 ? "right" : "left";
+    else sp.dir = dy > 0 ? "down" : "up";
+    return false;
   }
-  sp.link = down;
-  const [tx, ty] = linkMid(down);
-  if (walkTo(sp, tx, ty, dt)) {
-    sp.mode = "repair";
-    playAnim(sp, "repair");
-    return;
+
+  // Play an animation on: move to the tile the elapsed time asks for, and return
+  // how many times the line has been played through since the last call.
+  function playFrames(sp, fps, dt) {
+    const count = sp.rows[sp.anim][1];
+    sp.t += dt;
+    const n = Math.floor((sp.t * fps) / 1000);
+    sp.t -= (n * 1000) / fps;
+    sp.frame += n;
+    const loops = Math.floor(sp.frame / count);
+    sp.frame %= count;
+    return loops;
   }
-  if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
-  playFrames(sp, WALK_FPS, dt);
-}
 
-// How the diagram sits on the canvas: how many px a diagram unit takes, and
-// where the top left corner of the diagram is.
-function demoView(w) {
-  const vb = w.svg.viewBox.baseVal;
-  const box = w.svg.getBoundingClientRect();
-  if (!vb.width || !box.width) return null;
-  const canvas = w.canvas.getBoundingClientRect();
-  return {
-    k: box.width / vb.width,
-    ox: box.left - canvas.left,
-    oy: box.top - canvas.top,
-  };
-}
+  // Start another animation from its first tile.
+  function playAnim(sp, anim) {
+    sp.anim = anim;
+    sp.frame = 0;
+    sp.t = 0;
+    sp.loops = 0;
+  }
 
-// Put a character where it stands. The tile keeps its size in px and the
-// transform does the scaling, so only two properties change per frame.
-function drawSprite(sp, view) {
-  const k = (view.k * SPRITE_SIZE) / TILE;
-  const x = view.ox + sp.x * view.k - (TILE * k) / 2;
-  const y = view.oy + sp.y * view.k - (TILE * k) / 2;
-  sp.el.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
-  sp.el.style.backgroundPosition = `${-sp.frame * TILE}px ${-sp.rows[sp.anim][0] * TILE}px`;
-}
+  // The cable Stan goes for next: one of those still up, except the one where
+  // Blobby is.
+  function nextVictim(w, spare) {
+    const up = w.links.filter((e) => !isCut(e) && e !== spare);
+    const pool = up.length ? up : w.links;
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }
 
-// In demo mode, no need to animate each wave. Let's play all of them at once.
-function demoSecond(w) {
-  w.nextAt = w.clock + 1000;
-  applyOp(w, { t: "tick" });
-  while (w.wave) applyOp(w, { t: "deliver" });
-  redrawState(w); // once, at the end
-}
+  // Stan never rests: he walks to a cable and swings at it until it gives, then
+  // goes for the next one. A swing that misses is simply played again.
+  function stepStan(w, sp, dt) {
+    if (sp.mode === "attack") {
+      if (!playFrames(sp, ACT_FPS, dt)) return;
+      if (isCut(sp.link) || Math.random() >= CUT_CHANCE) return;
+      demoToggle(w, sp.link);
+      sp.link = null;
+      sp.mode = "walk";
+      return;
+    }
+    if (!sp.link) sp.link = nextVictim(w, w.demo.blobby.link);
+    if (!sp.link) return;
+    const [tx, ty] = linkMid(sp.link);
+    if (walkTo(sp, tx, ty - STAN_LIFT, dt)) {
+      sp.mode = "attack";
+      playAnim(sp, "attack");
+      return;
+    }
+    if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
+    playFrames(sp, WALK_FPS, dt);
+  }
 
-// One frame of the demo, driven by the animation loop.
-function demoFrame(w, dt) {
-  const view = demoView(w);
-  if (!view) return;
-  // The first frame of the loop can carry a timestamp older than the moment it
-  // was asked for, and a tab coming back to the front a very long one. A step
-  // out of range would send a character that stands on its mark nowhere.
-  dt = Math.min(Math.max(dt, 0), MAX_FRAME_MS);
-  stepStan(w, w.demo.stan, dt);
-  stepBlobby(w, w.demo.blobby, dt);
-  drawSprite(w.demo.stan, view);
-  drawSprite(w.demo.blobby, view);
-}
+  // Blobby takes the cables that are down, one at a time, and waits by the last
+  // one it repaired.
+  function stepBlobby(w, sp, dt) {
+    if (sp.mode === "repair") {
+      sp.loops += playFrames(sp, ACT_FPS, dt);
+      if (sp.loops < REPAIR_LOOPS) return;
+      if (isCut(sp.link)) demoToggle(w, sp.link);
+      sp.mode = "walk"; // sp.link stays: the repaired cable is where Blobby waits
+      return;
+    }
+    // The cable it is already on its way to while that one is still down, else
+    // the next one down. With every cable up, sp.link keeps the last of them and
+    // Blobby waits by it.
+    const down = sp.link && isCut(sp.link) ? sp.link : w.links.find(isCut);
+    if (!down) {
+      if (sp.anim !== "idle") playAnim(sp, "idle");
+      playFrames(sp, ACT_FPS, dt);
+      return;
+    }
+    sp.link = down;
+    const [tx, ty] = linkMid(down);
+    if (walkTo(sp, tx, ty, dt)) {
+      sp.mode = "repair";
+      playAnim(sp, "repair");
+      return;
+    }
+    if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
+    playFrames(sp, WALK_FPS, dt);
+  }
+
+  // How the diagram sits on the canvas: how many px a diagram unit takes, and
+  // where the top left corner of the diagram is.
+  function demoView(w) {
+    const vb = w.svg.viewBox.baseVal;
+    const box = w.svg.getBoundingClientRect();
+    if (!vb.width || !box.width) return null;
+    const canvas = w.canvas.getBoundingClientRect();
+    return {
+      k: box.width / vb.width,
+      ox: box.left - canvas.left,
+      oy: box.top - canvas.top,
+    };
+  }
+
+  // Put a character where it stands. The tile keeps its size in px and the
+  // transform does the scaling, so only two properties change per frame.
+  function drawSprite(sp, view) {
+    const k = (view.k * SPRITE_SIZE) / TILE;
+    const x = view.ox + sp.x * view.k - (TILE * k) / 2;
+    const y = view.oy + sp.y * view.k - (TILE * k) / 2;
+    sp.el.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
+    sp.el.style.backgroundPosition = `${-sp.frame * TILE}px ${-sp.rows[sp.anim][0] * TILE}px`;
+  }
+
+  // In demo mode, no need to animate each wave. Let's play all of them at once.
+  function demoSecond(w) {
+    w.nextAt = w.clock + 1000;
+    applyOp(w, { t: "tick" });
+    while (w.wave) applyOp(w, { t: "deliver" });
+    redrawState(w); // once, at the end
+  }
+
+  // One frame of the demo, driven by the animation loop.
+  function demoFrame(w, dt) {
+    if (w.clock >= w.nextAt) demoSecond(w);
+    const view = demoView(w);
+    if (!view) return;
+    // The first frame of the loop can carry a timestamp older than the moment it
+    // was asked for, and a tab coming back to the front a very long one. A step
+    // out of range would send a character that stands on its mark nowhere.
+    dt = Math.min(Math.max(dt, 0), MAX_FRAME_MS);
+    stepStan(w, w.demo.stan, dt);
+    stepBlobby(w, w.demo.blobby, dt);
+    drawSprite(w.demo.stan, view);
+    drawSprite(w.demo.blobby, view);
+  }
+
+  return { startDemo, demoFrame };
+})();
 
 // -- BPDU animation -------------------------------------------------
 
