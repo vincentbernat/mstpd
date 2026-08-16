@@ -520,71 +520,74 @@ async function mount(el) {
 // and pinned there. Its host stays behind and keeps the height it had, so the
 // page does not move. The next heading, or the next topology, pushes the widget
 // back out as it comes up.
+const { scheduleSticky } = (() => {
+  // What puts an end to a topology's stay at the top of the window.
+  const STOPPER = "h1, h2, h3, h4, h5, h6, .mstp-host";
 
-// What puts an end to a topology's stay at the top of the window.
-const STOPPER = "h1, h2, h3, h4, h5, h6, .mstp-host";
-
-// How far down the window the widget may reach: the top of what comes next,
-// margin included, so the widget does not sit on the air above a heading.
-function stopAt(el) {
-  const top = el.getBoundingClientRect().top;
-  return top - (parseFloat(getComputedStyle(el).marginTop) || 0);
-}
-
-// Pin a widget at the top of the window, or put it back in the page. rect is
-// where its host sits, and stop how far down the window the widget may reach.
-function setStuck(w, rect, stop) {
-  if (!rect) {
-    w.root.classList.remove("mstp-stuck");
-    w.root.style.top = w.root.style.left = w.root.style.width = "";
-    w.host.style.height = "";
-    return;
+  // How far down the window the widget may reach: the top of what comes next,
+  // margin included, so the widget does not sit on the air above a heading.
+  function stopAt(el) {
+    const top = el.getBoundingClientRect().top;
+    return top - (parseFloat(getComputedStyle(el).marginTop) || 0);
   }
-  // The width comes first, since a narrower widget has a shorter diagram, and
-  // the height is read with it. The host takes that height before the widget
-  // leaves the flow: a host with nothing in it and no height, even for the
-  // length of a measure, makes the browser move the page under our feet.
-  w.root.style.left = `${rect.left}px`;
-  w.root.style.width = `${rect.width}px`;
-  const height = w.root.getBoundingClientRect().height;
-  w.host.style.height = `${height}px`;
-  w.root.style.top = `${Math.min(0, stop - height)}px`;
-  w.root.classList.add("mstp-stuck");
-}
 
-// Go over the topologies and pin or release each of them. A pinned widget
-// leaves its host where it was, so what is measured here is always the place
-// the page gives the topology, not the place it is drawn at. Widgets in demo
-// mode are not pinned.
-function updateSticky() {
-  const els = [...document.querySelectorAll(STOPPER)];
-  els.forEach((el, i) => {
-    const w = widgets.get(el);
-    if (!w) return;
-    const rect = el.getBoundingClientRect();
-    const stop = els[i + 1] ? stopAt(els[i + 1]) : Infinity;
-    // Above the window, and with something left of the room before the next
-    // heading or topology.
-    if (w.demoOn || rect.top >= 0 || stop <= 0) return setStuck(w, null);
-    setStuck(w, rect, stop);
-  });
-}
+  // Pin a widget at the top of the window, or put it back in the page. rect is
+  // where its host sits, and stop how far down the window the widget may reach.
+  function setStuck(w, rect, stop) {
+    if (!rect) {
+      w.root.classList.remove("mstp-stuck");
+      w.root.style.top = w.root.style.left = w.root.style.width = "";
+      w.host.style.height = "";
+      return;
+    }
+    // The width comes first, since a narrower widget has a shorter diagram, and
+    // the height is read with it. The host takes that height before the widget
+    // leaves the flow: a host with nothing in it and no height, even for the
+    // length of a measure, makes the browser move the page under our feet.
+    w.root.style.left = `${rect.left}px`;
+    w.root.style.width = `${rect.width}px`;
+    const height = w.root.getBoundingClientRect().height;
+    w.host.style.height = `${height}px`;
+    w.root.style.top = `${Math.min(0, stop - height)}px`;
+    w.root.classList.add("mstp-stuck");
+  }
 
-let stickyPending = false;
+  // Go over the topologies and pin or release each of them. A pinned widget
+  // leaves its host where it was, so what is measured here is always the place
+  // the page gives the topology, not the place it is drawn at. Widgets in demo
+  // mode are not pinned.
+  function updateSticky() {
+    const els = [...document.querySelectorAll(STOPPER)];
+    els.forEach((el, i) => {
+      const w = widgets.get(el);
+      if (!w) return;
+      const rect = el.getBoundingClientRect();
+      const stop = els[i + 1] ? stopAt(els[i + 1]) : Infinity;
+      // Above the window, and with something left of the room before the next
+      // heading or topology.
+      if (w.demoOn || rect.top >= 0 || stop <= 0) return setStuck(w, null);
+      setStuck(w, rect, stop);
+    });
+  }
 
-// Scrolling fires far more often than the screen is drawn, so the work waits
-// for the next frame.
-function scheduleSticky() {
-  if (stickyPending) return;
-  stickyPending = true;
-  requestAnimationFrame(() => {
-    stickyPending = false;
-    updateSticky();
-  });
-}
+  let pending = false;
 
-window.addEventListener("scroll", scheduleSticky, { passive: true });
-window.addEventListener("resize", scheduleSticky);
+  // Scrolling fires far more often than the screen is drawn, so the work waits
+  // for the next frame.
+  function scheduleSticky() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      updateSticky();
+    });
+  }
+
+  window.addEventListener("scroll", scheduleSticky, { passive: true });
+  window.addEventListener("resize", scheduleSticky);
+
+  return { scheduleSticky };
+})();
 
 // -- layout ---------------------------------------------------------
 
