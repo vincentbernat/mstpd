@@ -471,9 +471,7 @@ async function mount(el) {
     select(w, null);
     animateSlide(w);
   };
-  editBtn.onclick = () => enterEdit(w);
-  saveBtn.onclick = () => saveEdit(w);
-  discardBtn.onclick = () => exitEdit(w);
+  wireEditor(w);
   slowBox.onchange = () => setSlow(w, slowBox.checked);
   clock.addEventListener("dblclick", () => copySeekLink(w, clock));
 
@@ -715,53 +713,60 @@ function showErrors(w) {
 }
 
 // -- editing --------------------------------------------------------
+//
+const { wireEditor } = (() => {
+  function enterEdit(w) {
+    setRunning(w, false);
+    w.textarea.value = w.source;
+    w.editing = true;
+    w.panel.hidden = true;
+    w.textarea.hidden = false;
+    w.runBtn.hidden =
+      w.backBtn.hidden =
+      w.stepBtn.hidden =
+      w.resetBtn.hidden =
+      w.editBtn.hidden =
+        true;
+    w.saveBtn.hidden = w.discardBtn.hidden = false;
+    w.textarea.focus();
+  }
 
-function enterEdit(w) {
-  setRunning(w, false);
-  w.textarea.value = w.source;
-  w.editing = true;
-  w.panel.hidden = true;
-  w.textarea.hidden = false;
-  w.runBtn.hidden =
-    w.backBtn.hidden =
-    w.stepBtn.hidden =
-    w.resetBtn.hidden =
-    w.editBtn.hidden =
-      true;
-  w.saveBtn.hidden = w.discardBtn.hidden = false;
-  w.textarea.focus();
-}
+  // Discard: drop the edits and return to the running diagram unchanged.
+  function leaveEdit(w) {
+    w.editing = false;
+    w.textarea.hidden = true;
+    w.panel.hidden = false;
+    w.runBtn.hidden =
+      w.backBtn.hidden =
+      w.stepBtn.hidden =
+      w.resetBtn.hidden =
+      w.editBtn.hidden =
+        false;
+    w.saveBtn.hidden = w.discardBtn.hidden = true;
+  }
 
-function leaveEdit(w) {
-  w.editing = false;
-  w.textarea.hidden = true;
-  w.panel.hidden = false;
-  w.runBtn.hidden =
-    w.backBtn.hidden =
-    w.stepBtn.hidden =
-    w.resetBtn.hidden =
-    w.editBtn.hidden =
-      false;
-  w.saveBtn.hidden = w.discardBtn.hidden = true;
-}
+  // Save: adopt the edited definition, re-lay the diagram, and rebuild the core.
+  function saveEdit(w) {
+    w.source = w.textarea.value;
+    w.model = parseTopology(w.source);
+    applyShape(w);
+    buildLegend(w);
+    showErrors(w);
+    leaveEdit(w);
+    build(w);
+    if (w.mstp) select(w, null);
+    scheduleSticky(); // a new definition means a diagram of another shape
+  }
 
-// Discard: drop the edits and return to the running diagram unchanged.
-function exitEdit(w) {
-  leaveEdit(w);
-}
+  // Edit opens the editor, Save adopts what it holds and Discard drops it.
+  function wireEditor(w) {
+    w.editBtn.onclick = () => enterEdit(w);
+    w.saveBtn.onclick = () => saveEdit(w);
+    w.discardBtn.onclick = () => leaveEdit(w);
+  }
 
-// Save: adopt the edited definition, re-lay the diagram, and rebuild the core.
-function saveEdit(w) {
-  w.source = w.textarea.value;
-  w.model = parseTopology(w.source);
-  applyShape(w);
-  buildLegend(w);
-  showErrors(w);
-  leaveEdit(w);
-  build(w);
-  if (w.mstp) select(w, null);
-  scheduleSticky(); // a new definition means a diagram of another shape
-}
+  return { wireEditor };
+})();
 
 function build(w) {
   // The rebuild can trip browser scroll anchoring and move the page even
