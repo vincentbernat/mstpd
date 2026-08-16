@@ -100,7 +100,8 @@ const BLOBBY_ROWS = {
 };
 const TILE = 64; // a tile of a sprite sheet, in px
 const SPRITE_SIZE = 72; // how wide a tile is drawn, in diagram units
-const WALK_SPEED = 120; // diagram units a character covers per second
+const STAN_SPEED = 50; // diagram units a character covers per second
+const BLOBBY_SPEED = 40;
 const WALK_FPS = 10;
 const ACT_FPS = 8; // the attack and the repair
 const CUT_CHANCE = 1 / 4; // how often a swing goes through the cable
@@ -1368,21 +1369,23 @@ function setDemo(w, on) {
 function cast(w) {
   const y = w.svg.viewBox.baseVal.height - SPRITE_SIZE / 2;
   return {
-    blobby: sprite(w.blobbyEl, BLOBBY_ROWS, SPRITE_SIZE / 2, y, "idle"),
-    stan: sprite(w.stanEl, STAN_ROWS, SPRITE_SIZE * 1.5, y, "down"),
+    blobby: sprite(w.blobbyEl, BLOBBY_ROWS, BLOBBY_SPEED, SPRITE_SIZE / 2, y),
+    stan: sprite(w.stanEl, STAN_ROWS, STAN_SPEED, SPRITE_SIZE * 1.5, y),
   };
 }
 
-// One character. anim names the line of the sheet it plays, frame the tile in
-// that line and t the time spent on it. link is the cable it works on, mode
-// what it does there, and dir the way it faces while it walks.
-function sprite(el, rows, x, y, anim) {
+// One character. rows is its sheet and speed how fast it crosses the diagram.
+// anim names the line of the sheet it plays, frame the tile in that line and t
+// the time spent on it. link is the cable it works on, mode what it does there,
+// and dir the way it faces while it walks.
+function sprite(el, rows, speed, x, y) {
   return {
     el,
     rows,
+    speed,
     x,
     y,
-    anim,
+    anim: "down", // whatever it does next puts its own line up
     dir: "down",
     frame: 0,
     t: 0,
@@ -1415,7 +1418,7 @@ function walkTo(sp, tx, ty, dt) {
   const dx = tx - sp.x;
   const dy = ty - sp.y;
   const dist = Math.hypot(dx, dy);
-  const step = (WALK_SPEED * dt) / 1000;
+  const step = (sp.speed * dt) / 1000;
   if (dist <= step) {
     sp.x = tx;
     sp.y = ty;
