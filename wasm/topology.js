@@ -1241,7 +1241,9 @@ function animate(w, now) {
     redrawState(w);
   }
 
-  if (w.wave) {
+  if (w.demoOn) {
+    if (w.clock >= w.nextAt) demoSecond(w);
+  } else if (w.wave) {
     // A step ends once the BPDUs it was playing have been delivered.
     if (w.clock >= w.wave.landAt) {
       deliverWave(w);
@@ -1530,6 +1532,14 @@ function drawSprite(sp, view) {
   const y = view.oy + sp.y * view.k - (TILE * k) / 2;
   sp.el.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
   sp.el.style.backgroundPosition = `${-sp.frame * TILE}px ${-sp.rows[sp.anim][0] * TILE}px`;
+}
+
+// In demo mode, no need to animate each wave. Let's play all of them at once.
+function demoSecond(w) {
+  w.nextAt = w.clock + 1000;
+  applyOp(w, { t: "tick" });
+  while (w.wave) applyOp(w, { t: "deliver" });
+  redrawState(w); // once, at the end
 }
 
 // One frame of the demo, driven by the animation loop.
