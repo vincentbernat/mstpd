@@ -1109,7 +1109,7 @@ function updateBackBtn(w) {
 
 // -- running --------------------------------------------------------
 
-// Only one topology on the page runs at a time.
+// Only one topology on the page runs at a time (demo excluded).
 let activeWidget = null;
 
 // Start a simulated second: run the timers, then put whatever the bridges
@@ -1206,8 +1206,10 @@ function animate(w, now) {
 }
 
 function startLoop(w) {
-  if (activeWidget && activeWidget !== w) setRunning(activeWidget, false);
-  activeWidget = w;
+  if (!w.demoOn) {
+    if (activeWidget && activeWidget !== w) setRunning(activeWidget, false);
+    activeWidget = w;
+  }
   w.last = performance.now();
   w.raf = requestAnimationFrame((t) => animate(w, t));
   w.stepBtn.disabled = true;
@@ -1331,7 +1333,12 @@ const { startDemo, demoFrame } = (() => {
     w.root.classList.add("mstp-demo");
     build(w);
     w.demo = cast(w);
-    setRunning(w, true);
+    // Nobody is watching while the widget is off screen, so the clock comes and
+    // goes with it. The observer reports where the widget stands as soon as it
+    // is set up, so this is also what gets the demo going.
+    new IntersectionObserver(([e]) => setRunning(w, e.isIntersecting)).observe(
+      w.host,
+    );
     scheduleSticky(); // a demo never stays at the top of the window
   }
 
