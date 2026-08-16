@@ -1318,6 +1318,7 @@ const { startDemo, demoFrame } = (() => {
   const SPRITE_SIZE = 72; // how wide a tile is drawn, in diagram units
   const STAN_SPEED = 50; // diagram units a character covers per second
   const BLOBBY_SPEED = 40;
+  const BLOBBY_RUSH = 1.5; // how much faster Blobby goes per extra cable down
   const WALK_FPS = 10;
   const ACT_FPS = 8; // the attack and the repair
   const CUT_CHANCE = 1 / 4; // how often a swing goes through the cable
@@ -1474,6 +1475,7 @@ const { startDemo, demoFrame } = (() => {
       return;
     }
     sp.link = down;
+    sp.speed = BLOBBY_SPEED * BLOBBY_RUSH ** (w.links.filter(isCut).length - 1);
     const [tx, ty] = linkMid(down);
     if (walkTo(sp, tx, ty, dt)) {
       sp.mode = "repair";
