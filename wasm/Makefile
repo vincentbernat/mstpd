@@ -46,6 +46,23 @@ $(DIST):
 test: $(DIST)/mstpd.mjs
 	node --test *.test.mjs
 
+# Sprite sheets for the two characters of the demo mode. Both are kept here,
+# each one a single 64x64 grid, 8 columns wide:
+#
+#   blobby.png  move down, up, left and right (8 frames), then idle and repair
+#              (6 frames, taken from the two first lines of the idle set)
+#   stan.png   move down, left, right and up (8 frames), then attack (8 frames,
+#              the first line of the attack set)
+#
+# Put each sheet into topology.css as a data URI, so the stylesheet stays the
+# only file the widget needs.
+topology.css: blobby.png stan.png
+	cp $@ $@.new
+	for png in $^; do \
+	  sed -i "s|--$${png%.png}: url([^)]*)|--$${png%.png}: url(data:image/png;base64,$$(base64 -w0 $$png))|" $@.new; \
+	done
+	mv $@.new $@
+
 .PHONY: clean
 clean:
 	rm -rf $(DIST)

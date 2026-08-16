@@ -598,6 +598,27 @@ I8 -- J8
       only larger.
     </p>
 
+    <h2>Demo mode!</h2>
+    <pre class="mstp-topology">
+:demo
+:protocol rstp
+
+A @0,0  prio=4096
+B @2,0
+C @0,2
+D @2,2
+
+A -- B
+A -- C
+B -- D
+C -- D
+B -- C
+    </pre>
+    <p>
+      Stan goes from cable to cable and cuts one every so often, Blobby repairs
+      whatever is down. Press the stop button in the corner to stop the demo.
+    </p>
+
     <script type="module" src="dist/mstpd.mjs"></script>
     <script type="module" src="topology.js"></script>
   </body>

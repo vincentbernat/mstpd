@@ -20,6 +20,7 @@
 //   :max-age N
 //   :max-hops N
 //   :tx-hold N
+//   :demo
 //
 // Endpoint flags: edge, no-auto-edge, network, bpdu-guard, root-guard, no-p2p
 //
@@ -79,6 +80,33 @@ const BOB_MS = 200; // one swing in and out
 
 // Shown on the Start half of the run toggle, and put back when it stops.
 const RUN_TITLE = "Play steps one after another";
+
+// The two characters of the demo mode. Each one has a sprite sheet of 64x64
+// tiles, eight per line, with one line per animation.
+const STAN_ROWS = {
+  down: [0, 8], // line number, number of sprites
+  left: [1, 8],
+  right: [2, 8],
+  up: [3, 8],
+  attack: [4, 8],
+};
+const BLOBBY_ROWS = {
+  down: [0, 8],
+  up: [1, 8],
+  left: [2, 8],
+  right: [3, 8],
+  idle: [4, 6],
+  repair: [5, 6],
+};
+const TILE = 64; // a tile of a sprite sheet, in px
+const SPRITE_SIZE = 72; // how wide a tile is drawn, in diagram units
+const WALK_SPEED = 120; // diagram units a character covers per second
+const WALK_FPS = 10;
+const ACT_FPS = 8; // the attack and the repair
+const CUT_CHANCE = 1 / 4; // how often a swing goes through the cable
+const STAN_LIFT = 16; // how far over a cable Stan stands, so his sword meets it
+const REPAIR_LOOPS = 2; // repair animations played before the cable comes back
+const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -140,6 +168,9 @@ function parseTopology(text) {
           break;
         case "tx-hold":
           directives.txHoldCount = +val;
+          break;
+        case "demo":
+          directives.demo = true;
           break;
         default:
           errors.push(`line ${ln}: unknown directive :${key}`);
@@ -375,6 +406,18 @@ async function mount(el) {
   const panel = h("div", { class: "mstp-panel" });
   const panelBody = h("div", { class: "mstp-panel-body" });
 
+  // The demo characters and the button that leaves them, over the diagram.
+  const stanEl = h("div", { class: "mstp-sprite mstp-stan" });
+  const blobbyEl = h("div", { class: "mstp-sprite mstp-blobby" });
+  const demoStop = h("button", {
+    class: "mstp-btn mstp-demo-stop",
+    title: "Leave the demo and take the controls back",
+    html: `${icon("⏹️")}Exit`,
+  });
+  canvas.appendChild(
+    h("div", { class: "mstp-sprites" }, blobbyEl, stanEl, demoStop),
+  );
+
   // The editor takes the place of the details while the definition is being
   // changed, so the diagram stays where it is.
   const textarea = h("textarea", { class: "mstp-edit-area" });
@@ -407,6 +450,8 @@ async function mount(el) {
     legend,
     textarea,
     errBox,
+    stanEl,
+    blobbyEl,
     runBtn,
     backBtn,
     stepBtn,
@@ -425,6 +470,8 @@ async function mount(el) {
     selected: null,
     flagsOpen: new Set(), // ports whose flag/state details are unfolded, by name
     editing: false,
+    demoOn: false, // the demo plays, with the controls and the BPDUs hidden
+    demo: null, // its two characters, while it plays
     timerError: false, // the core refused the timers
     time: 0,
     // Convergence: the ports are settled once none of them changes role or
@@ -472,6 +519,7 @@ async function mount(el) {
   backBtn.onclick = () => stepBack(w);
   stepBtn.onclick = () => stepOnce(w);
   resetBtn.onclick = () => {
+    if (w.model.directives.demo) return setDemo(w, true);
     setRunning(w, false);
     build(w);
     select(w, null);
@@ -482,6 +530,7 @@ async function mount(el) {
   discardBtn.onclick = () => exitEdit(w);
   slowBox.onchange = () => setSlow(w, slowBox.checked);
   clock.addEventListener("dblclick", () => copySeekLink(w, clock));
+  demoStop.onclick = () => setDemo(w, false);
 
   try {
     w.mstp = await loadMSTPD({
@@ -491,6 +540,7 @@ async function mount(el) {
     build(w);
     select(w, null);
     w.runBtn.disabled = w.stepBtn.disabled = w.resetBtn.disabled = false;
+    if (model.directives.demo) setDemo(w, true);
   } catch (e) {
     panelBody.textContent = "Failed to load simulation: " + e;
     console.error(e);
@@ -540,7 +590,8 @@ function setStuck(w, rect, stop) {
 
 // Go over the topologies and pin or release each of them. A pinned widget
 // leaves its host where it was, so what is measured here is always the place
-// the page gives the topology, not the place it is drawn at.
+// the page gives the topology, not the place it is drawn at. Widgets in demo
+// mode are not pinned.
 function updateSticky() {
   const els = [...document.querySelectorAll(STOPPER)];
   els.forEach((el, i) => {
@@ -550,7 +601,7 @@ function updateSticky() {
     const stop = els[i + 1] ? stopAt(els[i + 1]) : Infinity;
     // Above the window, and with something left of the room before the next
     // heading or topology.
-    if (rect.top >= 0 || stop <= 0) return setStuck(w, null);
+    if (w.demoOn || rect.top >= 0 || stop <= 0) return setStuck(w, null);
     setStuck(w, rect, stop);
   });
 }
@@ -764,6 +815,7 @@ function saveEdit(w) {
   buildLegend(w);
   showErrors(w);
   leaveEdit(w);
+  if (w.mstp && w.model.directives.demo) return setDemo(w, true);
   build(w);
   if (w.mstp) select(w, null);
   scheduleSticky(); // a new definition means a diagram of another shape
@@ -958,6 +1010,7 @@ function trackConvergence(w) {
 // so the op matches the recorded one and the cursor just moves forward. A new
 // action taken from the past crop the history to the current point.
 function record(w, t, link) {
+  if (w.demoOn) return;
   const next = w.history[w.cursor];
   if (next && next.t === t && next.link === link) {
     w.cursor += 1;
@@ -1200,6 +1253,7 @@ function animate(w, now) {
     if (w.stepping && !w.wave) return endStep(w);
   }
 
+  if (w.demoOn) demoFrame(w, dt);
   drawPills(w);
   w.raf = requestAnimationFrame((t) => animate(w, t));
 }
@@ -1290,6 +1344,208 @@ function setSlow(w, on) {
   w.speed = on ? SLOW_FACTOR : 1;
 }
 
+// -- demo mode ------------------------------------------------------
+//
+// The topology plays by itself while two characters work on the cables. Stan
+// walks to a cable and swings his sword at it until it cuts. Blobby follows him
+// to repair the cable and wait for the next cut.
+
+// Turn the demo on or off.
+function setDemo(w, on) {
+  w.demoOn = on;
+  w.root.classList.toggle("mstp-demo", on);
+  build(w);
+  w.demo = on ? cast(w) : null;
+  setRunning(w, on);
+  scheduleSticky(); // a demo never stays at the top of the window
+}
+
+// The two characters, side by side in the bottom left corner where the demo
+// starts them. From there they follow the cables and stay where those leave
+// them.
+function cast(w) {
+  const y = w.svg.viewBox.baseVal.height - SPRITE_SIZE / 2;
+  return {
+    blobby: sprite(w.blobbyEl, BLOBBY_ROWS, SPRITE_SIZE / 2, y, "idle"),
+    stan: sprite(w.stanEl, STAN_ROWS, SPRITE_SIZE * 1.5, y, "down"),
+  };
+}
+
+// One character. anim names the line of the sheet it plays, frame the tile in
+// that line and t the time spent on it. link is the cable it works on, mode
+// what it does there, and dir the way it faces while it walks.
+function sprite(el, rows, x, y, anim) {
+  return {
+    el,
+    rows,
+    x,
+    y,
+    anim,
+    dir: "down",
+    frame: 0,
+    t: 0,
+    loops: 0,
+    mode: "walk",
+    link: null,
+  };
+}
+
+// A cable the demo counts as down: a plain link that is cut, or a one-way link
+// with its fault on.
+const isCut = (e) => (e.oneway ? e.faulty : e.link.broken);
+
+// The middle of a cable, where a character stands to work on it.
+const linkMid = (e) => [
+  (e.geom.x1 + e.geom.x2) / 2,
+  (e.geom.y1 + e.geom.y2) / 2,
+];
+
+// Cut or repair a cable from the demo. Same as a double-click, without the
+// selection a click leaves behind.
+function demoToggle(w, e) {
+  applyToggle(w, e);
+  redrawState(w);
+}
+
+// Move a character towards a point and tell whether it is there. Its heading
+// picks the line of the sheet its walk plays.
+function walkTo(sp, tx, ty, dt) {
+  const dx = tx - sp.x;
+  const dy = ty - sp.y;
+  const dist = Math.hypot(dx, dy);
+  const step = (WALK_SPEED * dt) / 1000;
+  if (dist <= step) {
+    sp.x = tx;
+    sp.y = ty;
+    return true;
+  }
+  sp.x += (dx / dist) * step;
+  sp.y += (dy / dist) * step;
+  if (Math.abs(dx) > Math.abs(dy)) sp.dir = dx > 0 ? "right" : "left";
+  else sp.dir = dy > 0 ? "down" : "up";
+  return false;
+}
+
+// Play an animation on: move to the tile the elapsed time asks for, and return
+// how many times the line has been played through since the last call.
+function playFrames(sp, fps, dt) {
+  const count = sp.rows[sp.anim][1];
+  sp.t += dt;
+  const n = Math.floor((sp.t * fps) / 1000);
+  sp.t -= (n * 1000) / fps;
+  sp.frame += n;
+  const loops = Math.floor(sp.frame / count);
+  sp.frame %= count;
+  return loops;
+}
+
+// Start another animation from its first tile.
+function playAnim(sp, anim) {
+  sp.anim = anim;
+  sp.frame = 0;
+  sp.t = 0;
+  sp.loops = 0;
+}
+
+// The cable Stan goes for next: one of those still up, except the one where
+// Blobby is.
+function nextVictim(w, spare) {
+  const up = w.links.filter((e) => !isCut(e) && e !== spare);
+  const pool = up.length ? up : w.links;
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+// Stan never rests: he walks to a cable and swings at it until it gives, then
+// goes for the next one. A swing that misses is simply played again.
+function stepStan(w, sp, dt) {
+  if (sp.mode === "attack") {
+    if (!playFrames(sp, ACT_FPS, dt)) return;
+    if (isCut(sp.link) || Math.random() >= CUT_CHANCE) return;
+    demoToggle(w, sp.link);
+    sp.link = null;
+    sp.mode = "walk";
+    return;
+  }
+  if (!sp.link) sp.link = nextVictim(w, w.demo.blobby.link);
+  if (!sp.link) return;
+  const [tx, ty] = linkMid(sp.link);
+  if (walkTo(sp, tx, ty - STAN_LIFT, dt)) {
+    sp.mode = "attack";
+    playAnim(sp, "attack");
+    return;
+  }
+  if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
+  playFrames(sp, WALK_FPS, dt);
+}
+
+// Blobby takes the cables that are down, one at a time, and waits by the last
+// one it repaired.
+function stepBlobby(w, sp, dt) {
+  if (sp.mode === "repair") {
+    sp.loops += playFrames(sp, ACT_FPS, dt);
+    if (sp.loops < REPAIR_LOOPS) return;
+    if (isCut(sp.link)) demoToggle(w, sp.link);
+    sp.mode = "walk"; // sp.link stays: the repaired cable is where Blobby waits
+    return;
+  }
+  // The cable it is already on its way to while that one is still down, else
+  // the next one down. With every cable up, sp.link keeps the last of them and
+  // Blobby waits by it.
+  const down = sp.link && isCut(sp.link) ? sp.link : w.links.find(isCut);
+  if (!down) {
+    if (sp.anim !== "idle") playAnim(sp, "idle");
+    playFrames(sp, ACT_FPS, dt);
+    return;
+  }
+  sp.link = down;
+  const [tx, ty] = linkMid(down);
+  if (walkTo(sp, tx, ty, dt)) {
+    sp.mode = "repair";
+    playAnim(sp, "repair");
+    return;
+  }
+  if (sp.anim !== sp.dir) playAnim(sp, sp.dir);
+  playFrames(sp, WALK_FPS, dt);
+}
+
+// How the diagram sits on the canvas: how many px a diagram unit takes, and
+// where the top left corner of the diagram is.
+function demoView(w) {
+  const vb = w.svg.viewBox.baseVal;
+  const box = w.svg.getBoundingClientRect();
+  if (!vb.width || !box.width) return null;
+  const canvas = w.canvas.getBoundingClientRect();
+  return {
+    k: box.width / vb.width,
+    ox: box.left - canvas.left,
+    oy: box.top - canvas.top,
+  };
+}
+
+// Put a character where it stands. The tile keeps its size in px and the
+// transform does the scaling, so only two properties change per frame.
+function drawSprite(sp, view) {
+  const k = (view.k * SPRITE_SIZE) / TILE;
+  const x = view.ox + sp.x * view.k - (TILE * k) / 2;
+  const y = view.oy + sp.y * view.k - (TILE * k) / 2;
+  sp.el.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
+  sp.el.style.backgroundPosition = `${-sp.frame * TILE}px ${-sp.rows[sp.anim][0] * TILE}px`;
+}
+
+// One frame of the demo, driven by the animation loop.
+function demoFrame(w, dt) {
+  const view = demoView(w);
+  if (!view) return;
+  // The first frame of the loop can carry a timestamp older than the moment it
+  // was asked for, and a tab coming back to the front a very long one. A step
+  // out of range would send a character that stands on its mark nowhere.
+  dt = Math.min(Math.max(dt, 0), MAX_FRAME_MS);
+  stepStan(w, w.demo.stan, dt);
+  stepBlobby(w, w.demo.blobby, dt);
+  drawSprite(w.demo.stan, view);
+  drawSprite(w.demo.blobby, view);
+}
+
 // -- BPDU animation -------------------------------------------------
 
 // The BPDU each frame carries. A topology change is not a type of its own: the
@@ -1358,7 +1614,7 @@ function emitWave(w, gen) {
 // back on top each frame so render()'s redraw does not wipe it.
 function drawPills(w) {
   let layer = w.svg.querySelector(".mstp-pills");
-  if (!w.flights.length) {
+  if (w.demoOn || !w.flights.length) {
     layer?.remove();
     return;
   }
@@ -1706,9 +1962,10 @@ function render(w) {
       );
     }
 
-    // A port with no protocol has no role or state to show, so it gets no marker.
-    if (!noStp(e.a)) drawEndpoint(gEdges, e.a, e.b, pa, ox, oy);
-    if (!noStp(e.b)) drawEndpoint(gEdges, e.b, e.a, pb, ox, oy);
+    // A port with no protocol has no role or state to show, so it gets no
+    // marker.
+    if (!w.demoOn && !noStp(e.a)) drawEndpoint(gEdges, e.a, e.b, pa, ox, oy);
+    if (!w.demoOn && !noStp(e.b)) drawEndpoint(gEdges, e.b, e.a, pb, ox, oy);
   }
 
   for (const n of w.nodes) {
@@ -1737,34 +1994,30 @@ function render(w) {
       );
     else svgEl("circle", { cx: n.x, cy: n.y, r: NODE_RADIUS, ...shape }, g);
     drawNodeGlyph(g, n);
+    const solo = noStp(n) || w.demoOn;
     svgEl(
       "text",
       {
         x: n.x,
-        y: noStp(n) ? n.y + 4 : n.y - 1,
+        y: solo ? n.y + 4 : n.y - 1,
         "text-anchor": "middle",
         "font-weight": 600,
         "font-size": 13,
       },
       g,
     ).textContent = n.name;
-    svgEl(
-      "text",
-      {
-        x: n.x,
-        y: n.y + 12,
-        "text-anchor": "middle",
-        "font-size": 9,
-        opacity: 0.7,
-      },
-      g,
-    ).textContent = noStp(n)
-      ? ""
-      : isRoot
-        ? "ROOT"
-        : b
-          ? `${b.root_path_cost}`
-          : "";
+    if (!solo)
+      svgEl(
+        "text",
+        {
+          x: n.x,
+          y: n.y + 12,
+          "text-anchor": "middle",
+          "font-size": 9,
+          opacity: 0.7,
+        },
+        g,
+      ).textContent = isRoot ? "ROOT" : b ? `${b.root_path_cost}` : "";
     if (live)
       g.addEventListener("pointerdown", (ev) => {
         ev.stopPropagation();
@@ -1903,6 +2156,7 @@ function toggleLink(w, e) {
 }
 
 function renderPanel(w) {
+  if (w.demoOn) return;
   const panel = w.panel;
   panel.replaceChildren();
   const snap = snapshot(w);
@@ -2282,7 +2536,7 @@ function pickLink(w, a, b, nth) {
 
 // Reset a topology and apply a #mstp: op list to it.
 function seek(w, spec) {
-  if (!w.mstp || w.editing) return;
+  if (!w.mstp || w.editing || w.demoOn) return;
   setRunning(w, false);
   // Where the widget stands now, to tell later which way the seek went, and the
   // diagram to slide out on the way there.

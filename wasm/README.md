@@ -68,3 +68,9 @@ the directory over HTTP rather than opening the file directly:
 python3 -m http.server 8000
 open http://localhost:8000/demo.html
 ```
+
+## License
+
+The files are licensed as GPL-2.0-or-later, like MSTPD, except the spritesheets
+stan.png and blobby.png used for a demo. For these, you can find the license in
+https://craftpix.net/file-licenses/ (section 2).
