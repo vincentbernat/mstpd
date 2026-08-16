@@ -46,8 +46,6 @@ const PAD = NODE_RADIUS + 24; // viewBox margin around the nodes
 const MAX_STRETCH = 2; // how far one axis of the grid may be pulled to fill the box
 const PARALLEL_GAP = 16; // px between parallel links joining the same pair
 const SLOW_FACTOR = 3; // how much the snail stretches each simulated second
-const FLIGHT_MS = 500; // how long a BPDU takes to cross a link
-const PILL_GAP = 90; // how far apart BPDUs leaving the same port at once set off
 const MAX_WAVES = 50; // give up on a cascade that never settles
 const LOOKAHEAD_PAD = 10; // seconds the peek adds to the timers, to be safe
 
@@ -60,23 +58,6 @@ const STATE_COLOR = {
   discarding: "#e55",
 };
 const colorFor = (s) => STATE_COLOR[s] || "#888";
-
-// BPDU type -> colour, for the pills that animate along the links while
-// running. A transmitted BPDU is sorted into exactly one of the base buckets.
-// tc is not a base type but the ring drawn around any pill whose frame also
-// carries a topology change (the TC flag, or a legacy TCN BPDU).
-const BPDU_COLOR = {
-  hello: "#3b82f6", // a plain periodic BPDU
-  proposal: "#f59e0b", // RST BPDU carrying the proposal flag
-  agreement: "#22c55e", // RST BPDU carrying the agreement flag
-  tc: "#ef4444", // ring: the frame also carries a topology change
-};
-
-// The arrow a control link puts on the BPDUs it points out, and how far and
-// how fast it swings towards them.
-const HIGHLIGHT_COLOR = "#dc2626";
-const BOB = 4; // px
-const BOB_MS = 200; // one swing in and out
 
 // Shown on the Start half of the run toggle, and put back when it stops.
 const RUN_TITLE = "Play steps one after another";
@@ -645,12 +626,7 @@ function relayout(w) {
   if (!w.nodes.length) return;
   layout(w);
   render(w);
-  // The pills on their way carry the ends of their link with them.
-  const at = portGeometry(w);
-  for (const f of w.flights) {
-    const g = at.get(f.src);
-    if (g) ({ sx: f.sx, sy: f.sy, tx: f.tx, ty: f.ty } = g);
-  }
+  movePills(w);
 }
 
 // The protocols in play: what each bridge asks for, or the global default. A
@@ -1554,154 +1530,190 @@ const { startDemo, demoFrame } = (() => {
 })();
 
 // -- BPDU animation -------------------------------------------------
+//
+// A pill is one BPDU on its way across a link. Only what the run loop and
+// the legend need leaves this block.
+const { BPDU_COLOR, FLIGHT_MS, emitWave, movePills, drawPills } = (() => {
+  const FLIGHT_MS = 500; // how long a BPDU takes to cross a link
+  const PILL_GAP = 90; // how far apart BPDUs leaving the same port at once set off
 
-// The BPDU each frame carries. A topology change is not a type of its own: the
-// TC flag rides on whatever frame the port was already sending, so it is drawn
-// as a ring around the pill.
-const bpduType = (f) =>
-  f.proposal ? "proposal" : f.agreement ? "agreement" : "hello";
+  // BPDU type -> colour, for the pills that animate along the links while
+  // running. A transmitted BPDU is sorted into exactly one of the base buckets.
+  // tc is not a base type but the ring drawn around any pill whose frame also
+  // carries a topology change (the TC flag, or a legacy TCN BPDU).
+  const BPDU_COLOR = {
+    hello: "#3b82f6", // a plain periodic BPDU
+    proposal: "#f59e0b", // RST BPDU carrying the proposal flag
+    agreement: "#22c55e", // RST BPDU carrying the agreement flag
+    tc: "#ef4444", // ring: the frame also carries a topology change
+  };
 
-// Which end of which link a port sits at, and where its pills fly to.
-function portGeometry(w) {
-  const m = new Map();
-  for (const e of w.links) {
-    if (!e.geom) continue;
-    const { x1, y1, x2, y2 } = e.geom;
-    if (e.aPort)
-      m.set(e.aPort.handle, { link: e, sx: x1, sy: y1, tx: x2, ty: y2 });
-    if (e.bPort)
-      m.set(e.bPort.handle, { link: e, sx: x2, sy: y2, tx: x1, ty: y1 });
-  }
-  return m;
-}
+  // The arrow a control link puts on the BPDUs it points out, and how far and
+  // how fast it swings towards them.
+  const HIGHLIGHT_COLOR = "#dc2626";
+  const BOB = 4; // px
+  const BOB_MS = 200; // one swing in and out
 
-// Send the BPDUs the core has put on the wire since the last wave on their way,
-// one pill per frame. Every pill takes FLIGHT_MS to cross its link, so they all
-// land together and the wave can then be delivered. Stores the wave on the
-// widget, or null when the bridges had nothing to say.
-function emitWave(w, gen) {
-  const frames = w.mstp.queuedBPDUs(w.lastSeq);
-  const at = portGeometry(w);
-  const now = w.clock;
-  const nth = new Map(); // BPDUs a port is sending at once, to stagger them
+  // The BPDU each frame carries. A topology change is not a type of its own: the
+  // TC flag rides on whatever frame the port was already sending, so it is drawn
+  // as a ring around the pill.
+  const bpduType = (f) =>
+    f.proposal ? "proposal" : f.agreement ? "agreement" : "hello";
 
-  for (const f of frames) {
-    w.lastSeq = Math.max(w.lastSeq, f.seq);
-    const g = at.get(f.src);
-    if (!g) continue;
-    // Several BPDUs leaving one port at once are spread out a little so they
-    // can be told apart.
-    const i = nth.get(f.src) || 0;
-    nth.set(f.src, i + 1);
-    w.flights.push({
-      link: g.link,
-      src: f.src,
-      nth: i,
-      sx: g.sx,
-      sy: g.sy,
-      tx: g.tx,
-      ty: g.ty,
-      color: BPDU_COLOR[bpduType(f)],
-      tc: f.tc,
-      start: now + i * PILL_GAP,
-    });
+  // Which end of which link a port sits at, and where its pills fly to.
+  function portGeometry(w) {
+    const m = new Map();
+    for (const e of w.links) {
+      if (!e.geom) continue;
+      const { x1, y1, x2, y2 } = e.geom;
+      if (e.aPort)
+        m.set(e.aPort.handle, { link: e, sx: x1, sy: y1, tx: x2, ty: y2 });
+      if (e.bPort)
+        m.set(e.bPort.handle, { link: e, sx: x2, sy: y2, tx: x1, ty: y1 });
+    }
+    return m;
   }
 
-  // A cut puts its BPDUs on a wire that may still be carrying the previous ones.
-  // The core holds them in one queue, so they make up a single wave, landing
-  // when the last of them arrives.
-  const landAt = w.flights.reduce(
-    (m, f) => Math.max(m, f.start + FLIGHT_MS),
-    0,
-  );
-  w.wave = landAt ? { gen, landAt } : null;
-}
+  // Send the BPDUs the core has put on the wire since the last wave on their way,
+  // one pill per frame. Every pill takes FLIGHT_MS to cross its link, so they all
+  // land together and the wave can then be delivered. Stores the wave on the
+  // widget, or null when the bridges had nothing to say.
+  function emitWave(w, gen) {
+    const frames = w.mstp.queuedBPDUs(w.lastSeq);
+    const at = portGeometry(w);
+    const now = w.clock;
+    const nth = new Map(); // BPDUs a port is sending at once, to stagger them
 
-// Draw each flying pill at its spot for the current clock. The pill layer goes
-// back on top each frame so render()'s redraw does not wipe it.
-function drawPills(w) {
-  let layer = w.svg.querySelector(".mstp-pills");
-  if (w.demoOn || !w.flights.length) {
-    layer?.remove();
-    return;
+    for (const f of frames) {
+      w.lastSeq = Math.max(w.lastSeq, f.seq);
+      const g = at.get(f.src);
+      if (!g) continue;
+      // Several BPDUs leaving one port at once are spread out a little so they
+      // can be told apart.
+      const i = nth.get(f.src) || 0;
+      nth.set(f.src, i + 1);
+      w.flights.push({
+        link: g.link,
+        src: f.src,
+        nth: i,
+        sx: g.sx,
+        sy: g.sy,
+        tx: g.tx,
+        ty: g.ty,
+        color: BPDU_COLOR[bpduType(f)],
+        tc: f.tc,
+        start: now + i * PILL_GAP,
+      });
+    }
+
+    // A cut puts its BPDUs on a wire that may still be carrying the previous ones.
+    // The core holds them in one queue, so they make up a single wave, landing
+    // when the last of them arrives.
+    const landAt = w.flights.reduce(
+      (m, f) => Math.max(m, f.start + FLIGHT_MS),
+      0,
+    );
+    w.wave = landAt ? { gen, landAt } : null;
   }
-  if (!layer)
-    layer = svgEl("g", { class: "mstp-pills", "pointer-events": "none" });
-  else layer.replaceChildren();
-  w.svg.appendChild(layer);
 
-  for (const f of w.flights) {
-    if (w.clock < f.start) continue; // not launched yet
-    const p = (w.clock - f.start) / FLIGHT_MS;
-    const x = f.sx + (f.tx - f.sx) * p;
-    const y = f.sy + (f.ty - f.sy) * p;
-    const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
+  // Draw each flying pill at its spot for the current clock. The pill layer goes
+  // back on top each frame so render()'s redraw does not wipe it.
+  function drawPills(w) {
+    let layer = w.svg.querySelector(".mstp-pills");
+    if (w.demoOn || !w.flights.length) {
+      layer?.remove();
+      return;
+    }
+    if (!layer)
+      layer = svgEl("g", { class: "mstp-pills", "pointer-events": "none" });
+    else layer.replaceChildren();
+    w.svg.appendChild(layer);
 
-    if (marked(w, f)) drawArrow(layer, f, x, y, fade, w.clock);
+    for (const f of w.flights) {
+      if (w.clock < f.start) continue; // not launched yet
+      const p = (w.clock - f.start) / FLIGHT_MS;
+      const x = f.sx + (f.tx - f.sx) * p;
+      const y = f.sy + (f.ty - f.sy) * p;
+      const fade = Math.min(1, p / 0.15, (1 - p) / 0.15);
+
+      if (marked(w, f)) drawArrow(layer, f, x, y, fade, w.clock);
+      svgEl(
+        "circle",
+        {
+          cx: x,
+          cy: y,
+          r: f.tc ? 5 : 4.5,
+          fill: f.color,
+          stroke: f.tc ? BPDU_COLOR.tc : "#fff8",
+          "stroke-width": f.tc ? 2.25 : 0.75,
+          opacity: fade,
+        },
+        layer,
+      );
+    }
+  }
+
+  // Does this pill get an arrow? A mark with no number takes every BPDU its port
+  // sends in the same wave.
+  const marked = (w, f) =>
+    w.highlight.some(
+      (m) => m.src === f.src && (m.nth === null || m.nth === f.nth),
+    );
+
+  // An arrow travelling with a pill and pointing at it, to single out one BPDU
+  // among the many crossing the diagram. It sits to one side of the link so the
+  // pill itself stays visible, and nudges towards it and back to catch the eye.
+  function drawArrow(layer, f, x, y, opacity, clock) {
+    const len = Math.hypot(f.tx - f.sx, f.ty - f.sy) || 1;
+    const ux = (f.tx - f.sx) / len;
+    const uy = (f.ty - f.sy) / len;
+    const bob = (BOB / 2) * (1 - Math.cos((2 * Math.PI * clock) / BOB_MS));
+    // Coordinates in the arrow's own frame: out is the distance from the pill,
+    // side the offset across the arrow.
+    const at = (out, side) => [
+      x - uy * (out - bob) + ux * side,
+      y + ux * (out - bob) + uy * side,
+    ];
+    const gap = 10; // between the pill and the tip, at the far end of the swing
+    const head = 8; // length of the head
+    const total = 24; // pill to tail
+    const hw = 6; // half width of the head
+    const sw = 2; // half width of the shaft
     svgEl(
-      "circle",
+      "polygon",
       {
-        cx: x,
-        cy: y,
-        r: f.tc ? 5 : 4.5,
-        fill: f.color,
-        stroke: f.tc ? BPDU_COLOR.tc : "#fff8",
-        "stroke-width": f.tc ? 2.25 : 0.75,
-        opacity: fade,
+        points: [
+          at(gap, 0),
+          at(gap + head, hw),
+          at(gap + head, sw),
+          at(total, sw),
+          at(total, -sw),
+          at(gap + head, -sw),
+          at(gap + head, -hw),
+        ]
+          .map((p) => p.join(","))
+          .join(" "),
+        fill: HIGHLIGHT_COLOR,
+        stroke: "#fff8",
+        "stroke-width": 0.75,
+        opacity,
       },
       layer,
     );
   }
-}
 
-// Does this pill get an arrow? A mark with no number takes every BPDU its port
-// sends in the same wave.
-const marked = (w, f) =>
-  w.highlight.some(
-    (m) => m.src === f.src && (m.nth === null || m.nth === f.nth),
-  );
+  // A resize moves the ends of every link, and the pills on their way carry
+  // those ends with them.
+  function movePills(w) {
+    const at = portGeometry(w);
+    for (const f of w.flights) {
+      const g = at.get(f.src);
+      if (g) ({ sx: f.sx, sy: f.sy, tx: f.tx, ty: f.ty } = g);
+    }
+  }
 
-// An arrow travelling with a pill and pointing at it, to single out one BPDU
-// among the many crossing the diagram. It sits to one side of the link so the
-// pill itself stays visible, and nudges towards it and back to catch the eye.
-function drawArrow(layer, f, x, y, opacity, clock) {
-  const len = Math.hypot(f.tx - f.sx, f.ty - f.sy) || 1;
-  const ux = (f.tx - f.sx) / len;
-  const uy = (f.ty - f.sy) / len;
-  const bob = (BOB / 2) * (1 - Math.cos((2 * Math.PI * clock) / BOB_MS));
-  // Coordinates in the arrow's own frame: out is the distance from the pill,
-  // side the offset across the arrow.
-  const at = (out, side) => [
-    x - uy * (out - bob) + ux * side,
-    y + ux * (out - bob) + uy * side,
-  ];
-  const gap = 10; // between the pill and the tip, at the far end of the swing
-  const head = 8; // length of the head
-  const total = 24; // pill to tail
-  const hw = 6; // half width of the head
-  const sw = 2; // half width of the shaft
-  svgEl(
-    "polygon",
-    {
-      points: [
-        at(gap, 0),
-        at(gap + head, hw),
-        at(gap + head, sw),
-        at(total, sw),
-        at(total, -sw),
-        at(gap + head, -sw),
-        at(gap + head, -hw),
-      ]
-        .map((p) => p.join(","))
-        .join(" "),
-      fill: HIGHLIGHT_COLOR,
-      stroke: "#fff8",
-      "stroke-width": 0.75,
-      opacity,
-    },
-    layer,
-  );
-}
+  return { BPDU_COLOR, FLIGHT_MS, emitWave, movePills, drawPills };
+})();
 
 // -- state ----------------------------------------------------------
 
