@@ -211,14 +211,6 @@
     background-size: 512px 320px;
   }
 
-  .mstp-demo-stop {
-    position: absolute;
-    left: 0.6em;
-    top: 0.6em;
-    pointer-events: auto;
-    background: Canvas;
-  }
-
   /* The demo takes the widget over: the controls, the details and the legend
      leave, the characters come out, and nothing answers a click any more. */
   &.mstp-demo {

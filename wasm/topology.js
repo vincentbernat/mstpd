@@ -407,17 +407,10 @@ async function mount(el) {
   const panel = h("div", { class: "mstp-panel" });
   const panelBody = h("div", { class: "mstp-panel-body" });
 
-  // The demo characters and the button that leaves them, over the diagram.
+  // The demo characters, over the diagram.
   const stanEl = h("div", { class: "mstp-sprite mstp-stan" });
   const blobbyEl = h("div", { class: "mstp-sprite mstp-blobby" });
-  const demoStop = h("button", {
-    class: "mstp-btn mstp-demo-stop",
-    title: "Leave the demo and take the controls back",
-    html: `${icon("⏹️")}Exit`,
-  });
-  canvas.appendChild(
-    h("div", { class: "mstp-sprites" }, blobbyEl, stanEl, demoStop),
-  );
+  canvas.appendChild(h("div", { class: "mstp-sprites" }, blobbyEl, stanEl));
 
   // The editor takes the place of the details while the definition is being
   // changed, so the diagram stays where it is.
@@ -520,7 +513,6 @@ async function mount(el) {
   backBtn.onclick = () => stepBack(w);
   stepBtn.onclick = () => stepOnce(w);
   resetBtn.onclick = () => {
-    if (w.model.directives.demo) return setDemo(w, true);
     setRunning(w, false);
     build(w);
     select(w, null);
@@ -531,7 +523,6 @@ async function mount(el) {
   discardBtn.onclick = () => exitEdit(w);
   slowBox.onchange = () => setSlow(w, slowBox.checked);
   clock.addEventListener("dblclick", () => copySeekLink(w, clock));
-  demoStop.onclick = () => setDemo(w, false);
 
   try {
     w.mstp = await loadMSTPD({
@@ -541,7 +532,7 @@ async function mount(el) {
     build(w);
     select(w, null);
     w.runBtn.disabled = w.stepBtn.disabled = w.resetBtn.disabled = false;
-    if (model.directives.demo) setDemo(w, true);
+    if (model.directives.demo) startDemo(w);
   } catch (e) {
     panelBody.textContent = "Failed to load simulation: " + e;
     console.error(e);
@@ -816,7 +807,6 @@ function saveEdit(w) {
   buildLegend(w);
   showErrors(w);
   leaveEdit(w);
-  if (w.mstp && w.model.directives.demo) return setDemo(w, true);
   build(w);
   if (w.mstp) select(w, null);
   scheduleSticky(); // a new definition means a diagram of another shape
@@ -1352,14 +1342,12 @@ function setSlow(w, on) {
 // The topology plays by itself while two characters work on the cables. Stan
 // walks to a cable and swings his sword at it until it cuts. Blobby follows him
 // to repair the cable and wait for the next cut.
-
-// Turn the demo on or off.
-function setDemo(w, on) {
-  w.demoOn = on;
-  w.root.classList.toggle("mstp-demo", on);
+function startDemo(w) {
+  w.demoOn = true;
+  w.root.classList.add("mstp-demo");
   build(w);
-  w.demo = on ? cast(w) : null;
-  setRunning(w, on);
+  w.demo = cast(w);
+  setRunning(w, true);
   scheduleSticky(); // a demo never stays at the top of the window
 }
 
