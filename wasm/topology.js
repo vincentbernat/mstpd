@@ -2510,166 +2510,171 @@ function pcapButton(w, filename, port) {
 // the widget is stepped on. An arrow, ... and @ do not move the sim on, so they
 // can sit anywhere in the list.
 
-// Host element -> widget, to find the widget a control link drives.
+// Host element -> widget: where mount() files a widget, and where the control
+// links and the sticky code find it back.
 const widgets = new WeakMap();
 
-// The topology a control link drives: the closest one before the link.
-function closestWidget(from) {
-  let before = null;
-  for (const host of document.querySelectorAll(".mstp-host")) {
-    if (from.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_PRECEDING)
-      before = host;
+const { copySeekLink } = (() => {
+  // The topology a control link drives: the closest one before the link.
+  function closestWidget(from) {
+    let before = null;
+    for (const host of document.querySelectorAll(".mstp-host")) {
+      if (from.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_PRECEDING)
+        before = host;
+    }
+    return before && widgets.get(before);
   }
-  return before && widgets.get(before);
-}
 
-const SEEK_TOGGLE = /^(.+?)\s*--\s*(.+?)(?:\s*:(\d+))?$/;
-const SEEK_ARROW = /^(.+?)\s*->\s*(.+?)(?:\s*:(\d+))?(?:\s*#(\d+))?$/;
-const SEEK_RUN = "...";
-const SEEK_SNAIL = "@";
+  const SEEK_TOGGLE = /^(.+?)\s*--\s*(.+?)(?:\s*:(\d+))?$/;
+  const SEEK_ARROW = /^(.+?)\s*->\s*(.+?)(?:\s*:(\d+))?(?:\s*#(\d+))?$/;
+  const SEEK_RUN = "...";
+  const SEEK_SNAIL = "@";
 
-// The link an op names, as an index into w.links, or -1. nth picks one when
-// several links join the same two bridges.
-function pickLink(w, a, b, nth) {
-  const matching = w.links
-    .map((l, i) => i)
-    .filter(
-      (i) =>
-        (w.links[i].a.name === a && w.links[i].b.name === b) ||
-        (w.links[i].a.name === b && w.links[i].b.name === a),
+  // The link an op names, as an index into w.links, or -1. nth picks one when
+  // several links join the same two bridges.
+  function pickLink(w, a, b, nth) {
+    const matching = w.links
+      .map((l, i) => i)
+      .filter(
+        (i) =>
+          (w.links[i].a.name === a && w.links[i].b.name === b) ||
+          (w.links[i].a.name === b && w.links[i].b.name === a),
+      );
+    return matching[(nth ? +nth : 1) - 1] ?? -1;
+  }
+
+  // Reset a topology and apply a #mstp: op list to it.
+  function seek(w, spec) {
+    if (!w.mstp || w.editing || w.demoOn) return;
+    setRunning(w, false);
+    // Where the widget stands now, to tell later which way the seek went, and the
+    // diagram to slide out on the way there.
+    const from = historyPos(w);
+    const ghost = snapshotCanvas(w);
+    // Keep the selected bridge or link selected across the rebuild.
+    const selected = w.selected;
+    const sel =
+      selected &&
+      (selected.type === "link"
+        ? { type: "link", index: w.links.indexOf(selected.ref) }
+        : { type: "node", name: selected.ref.name });
+    build(w);
+    const all = spec
+      .split(",")
+      .map((tok) => tok.trim())
+      .filter(Boolean);
+    // The arrows are set aside: they mark BPDUs instead of moving the sim on, so
+    // they are taken first and their place in the list does not matter. Same for
+    // the ask to go on playing, which only matters once the rest is done.
+    const arrows = all.filter((op) => SEEK_ARROW.test(op));
+    const keepPlaying = all.includes(SEEK_RUN);
+    const ops = all.filter(
+      (op) => op !== SEEK_RUN && op !== SEEK_SNAIL && !SEEK_ARROW.test(op),
     );
-  return matching[(nth ? +nth : 1) - 1] ?? -1;
-}
+    // Only the snail op says anything about slow motion: without it the box stays
+    // as the reader set it.
+    if (all.includes(SEEK_SNAIL)) setSlow(w, true);
 
-// Reset a topology and apply a #mstp: op list to it.
-function seek(w, spec) {
-  if (!w.mstp || w.editing || w.demoOn) return;
-  setRunning(w, false);
-  // Where the widget stands now, to tell later which way the seek went, and the
-  // diagram to slide out on the way there.
-  const from = historyPos(w);
-  const ghost = snapshotCanvas(w);
-  // Keep the selected bridge or link selected across the rebuild.
-  const selected = w.selected;
-  const sel =
-    selected &&
-    (selected.type === "link"
-      ? { type: "link", index: w.links.indexOf(selected.ref) }
-      : { type: "node", name: selected.ref.name });
-  build(w);
-  const all = spec
-    .split(",")
-    .map((tok) => tok.trim())
-    .filter(Boolean);
-  // The arrows are set aside: they mark BPDUs instead of moving the sim on, so
-  // they are taken first and their place in the list does not matter. Same for
-  // the ask to go on playing, which only matters once the rest is done.
-  const arrows = all.filter((op) => SEEK_ARROW.test(op));
-  const keepPlaying = all.includes(SEEK_RUN);
-  const ops = all.filter(
-    (op) => op !== SEEK_RUN && op !== SEEK_SNAIL && !SEEK_ARROW.test(op),
-  );
-  // Only the snail op says anything about slow motion: without it the box stays
-  // as the reader set it.
-  if (all.includes(SEEK_SNAIL)) setSlow(w, true);
-
-  for (const op of arrows) {
-    const m = op.match(SEEK_ARROW);
-    const e = w.links[pickLink(w, m[1], m[2], m[3])];
-    const port = e && (e.a.name === m[1] ? e.aPort : e.bPort);
-    if (!port) {
-      console.warn(`mstp: cannot apply "${op}"`);
-      continue;
+    for (const op of arrows) {
+      const m = op.match(SEEK_ARROW);
+      const e = w.links[pickLink(w, m[1], m[2], m[3])];
+      const port = e && (e.a.name === m[1] ? e.aPort : e.bPort);
+      if (!port) {
+        console.warn(`mstp: cannot apply "${op}"`);
+        continue;
+      }
+      w.highlight.push({ src: port.handle, nth: m[4] ? +m[4] - 1 : null });
     }
-    w.highlight.push({ src: port.handle, nth: m[4] ? +m[4] - 1 : null });
+
+    // When the list ends on a step count, its final step plays animated.
+    const playLast = ops.length > 0 && /^\d+$/.test(ops[ops.length - 1]);
+
+    ops.forEach((op, oi) => {
+      if (/^\d+$/.test(op)) {
+        let n = +op;
+        if (playLast && oi === ops.length - 1) n -= 1; // hold the last one back
+        for (let i = 0; i < n; i++) applyStep(w);
+        return;
+      }
+      const m = op.match(SEEK_TOGGLE);
+      const idx = m ? pickLink(w, m[1], m[2], m[3]) : -1;
+      if (idx < 0) {
+        console.warn(`mstp: cannot apply "${op}"`);
+        return;
+      }
+      record(w, "toggle", idx);
+      applyOp(w, { t: "toggle", link: idx });
+    });
+    select(
+      w,
+      sel &&
+        (sel.type === "link"
+          ? { type: "link", ref: w.links[sel.index] }
+          : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
+    );
+    // The step held back counts too, it is about to play.
+    const to = historyPos(w) + (playLast ? 1 : 0);
+    if (to !== from) animateSlide(w, ghost, to < from);
+    if (playLast) stepOnce(w);
+    if (keepPlaying) setRunning(w, true);
   }
 
-  // When the list ends on a step count, its final step plays animated.
-  const playLast = ops.length > 0 && /^\d+$/.test(ops[ops.length - 1]);
+  // Where a link sits among those joining the same two bridges, the way pickLink
+  // counts them. Empty when it is the only one: the op needs no number then.
+  function linkNth(w, e) {
+    const same = w.links.filter(
+      (l) =>
+        (l.a.name === e.a.name && l.b.name === e.b.name) ||
+        (l.a.name === e.b.name && l.b.name === e.a.name),
+    );
+    return same.length > 1 ? `:${same.indexOf(e) + 1}` : "";
+  }
 
-  ops.forEach((op, oi) => {
-    if (/^\d+$/.test(op)) {
-      let n = +op;
-      if (playLast && oi === ops.length - 1) n -= 1; // hold the last one back
-      for (let i = 0; i < n; i++) applyStep(w);
-      return;
+  // The op list that leads to the state on show: the cuts and restores of the
+  // history with the step counts between them.
+  function seekOps(w) {
+    const ops = [];
+    let steps = 0;
+    const flush = () => {
+      if (steps) ops.push(String(steps));
+      steps = 0;
+    };
+    for (let i = 0; i < w.cursor; i++) {
+      const op = w.history[i];
+      if (op.t === "toggle") {
+        flush();
+        const e = w.links[op.link];
+        ops.push(`${e.a.name}--${e.b.name}${linkNth(w, e)}`);
+      } else if (op.t === "tick" || w.history[i - 1]?.t !== "tick") {
+        steps += 1; // a deliver landing a tick's wave is part of that same step
+      }
     }
-    const m = op.match(SEEK_TOGGLE);
-    const idx = m ? pickLink(w, m[1], m[2], m[3]) : -1;
-    if (idx < 0) {
-      console.warn(`mstp: cannot apply "${op}"`);
-      return;
-    }
-    record(w, "toggle", idx);
-    applyOp(w, { t: "toggle", link: idx });
+    flush();
+    return ops;
+  }
+
+  // Put the link that plays the current state back on the clipboard, and flash
+  // the clock to say it has been taken.
+  function copySeekLink(w, el) {
+    if (!w.mstp || w.editing) return;
+    const link = `#mstp:${seekOps(w).join(",")}`;
+    navigator.clipboard?.writeText(link).then(
+      () => bump(el, "mstp-bump-copy"),
+      (err) => console.warn(`mstp: cannot copy "${link}" (${err})`),
+    );
+  }
+
+  document.addEventListener("click", (ev) => {
+    const a = ev.target.closest?.("a[href^='#mstp:']");
+    if (!a) return;
+    ev.preventDefault();
+    const w = closestWidget(a);
+    if (!w) return;
+    seek(w, decodeURIComponent(a.hash.slice(6)));
   });
-  select(
-    w,
-    sel &&
-      (sel.type === "link"
-        ? { type: "link", ref: w.links[sel.index] }
-        : { type: "node", ref: w.nodes.find((n) => n.name === sel.name) }),
-  );
-  // The step held back counts too, it is about to play.
-  const to = historyPos(w) + (playLast ? 1 : 0);
-  if (to !== from) animateSlide(w, ghost, to < from);
-  if (playLast) stepOnce(w);
-  if (keepPlaying) setRunning(w, true);
-}
 
-// Where a link sits among those joining the same two bridges, the way pickLink
-// counts them. Empty when it is the only one: the op needs no number then.
-function linkNth(w, e) {
-  const same = w.links.filter(
-    (l) =>
-      (l.a.name === e.a.name && l.b.name === e.b.name) ||
-      (l.a.name === e.b.name && l.b.name === e.a.name),
-  );
-  return same.length > 1 ? `:${same.indexOf(e) + 1}` : "";
-}
-
-// The op list that leads to the state on show: the cuts and restores of the
-// history with the step counts between them.
-function seekOps(w) {
-  const ops = [];
-  let steps = 0;
-  const flush = () => {
-    if (steps) ops.push(String(steps));
-    steps = 0;
-  };
-  for (let i = 0; i < w.cursor; i++) {
-    const op = w.history[i];
-    if (op.t === "toggle") {
-      flush();
-      const e = w.links[op.link];
-      ops.push(`${e.a.name}--${e.b.name}${linkNth(w, e)}`);
-    } else if (op.t === "tick" || w.history[i - 1]?.t !== "tick") {
-      steps += 1; // a deliver landing a tick's wave is part of that same step
-    }
-  }
-  flush();
-  return ops;
-}
-
-// Put the link that plays the current state back on the clipboard, and flash
-// the clock to say it has been taken.
-function copySeekLink(w, el) {
-  if (!w.mstp || w.editing) return;
-  const link = `#mstp:${seekOps(w).join(",")}`;
-  navigator.clipboard?.writeText(link).then(
-    () => bump(el, "mstp-bump-copy"),
-    (err) => console.warn(`mstp: cannot copy "${link}" (${err})`),
-  );
-}
-
-document.addEventListener("click", (ev) => {
-  const a = ev.target.closest?.("a[href^='#mstp:']");
-  if (!a) return;
-  ev.preventDefault();
-  const w = closestWidget(a);
-  if (!w) return;
-  seek(w, decodeURIComponent(a.hash.slice(6)));
-});
+  return { copySeekLink };
+})();
 
 // -- bootstrap ------------------------------------------------------
 
