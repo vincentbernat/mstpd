@@ -2653,7 +2653,7 @@ const { copySeekLink } = (() => {
     );
     // The step held back counts too, it is about to play.
     const to = historyPos(w) + (playLast ? 1 : 0);
-    if (to !== from) animateSlide(w, ghost, to < from);
+    if (to !== from && to !== from + 1) animateSlide(w, ghost, to < from);
     if (playLast) stepOnce(w);
     if (keepPlaying) setRunning(w, true);
   }
