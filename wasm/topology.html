@@ -609,14 +609,15 @@ C @0,2
 D @2,2
 
 A -- B
-A -- C
+A -- C  hazard=0
 B -- D
 C -- D
-B -- C
+B -- C  hazard=4
     </pre>
     <p>
       Stan goes from cable to cable and cuts one every so often, Blobby repairs
-      whatever is down.
+      whatever is down. The hazard of a cable is how often Stan goes for it: the
+      diagonal takes most of the blows, and A–C is left alone.
     </p>
 
     <script type="module" src="dist/mstpd.mjs"></script>

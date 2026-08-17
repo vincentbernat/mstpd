@@ -12,8 +12,8 @@
 // Grammar (one statement per line; # or // starts a comment):
 //
 //   NAME @X,Y [prio=N] [proto=stp|rstp|mstp|none] [icon=C]  # a bridge at grid cell X,Y
-//   A -- B [cost=N] [down] [A:flag ...]                # a link between two bridges
-//   A -> B [cost=N] [A:flag ...]                       # a one-way link (A transmits, B receives)
+//   A -- B [cost=N] [down] [hazard=N] [A:flag ...]     # a link between two bridges
+//   A -> B [cost=N] [hazard=N] [A:flag ...]            # a one-way link (A transmits, B receives)
 //   # global options
 //   :protocol rstp|stp|mstp|none
 //   :forward-delay N
@@ -26,6 +26,10 @@
 //
 // proto=none turns the spanning tree off on a bridge: it sends no BPDUs, drops
 // the ones it receives, and its ports have no role or state.
+//
+// hazard is how often the Stan goes for a cable, 1 by default. A cable with a
+// hazard of 2 is picked twice as often as a plain one, and one with a hazard of
+// 0 is never picked.
 //
 // A regular link with an #mstp: anchor puts the nearest topology above in a
 // given state, e.g. <a href="#mstp:B--C,30">: see "control links" below.
@@ -142,6 +146,7 @@ function parseTopology(text) {
         oneway: op === "->",
         cost: undefined,
         down: false,
+        hazard: 1,
         aOpts: {},
         bOpts: {},
         line: ln,
@@ -167,6 +172,8 @@ function parseTopology(text) {
           else Object.assign(target, PORT_FLAGS[flag]);
         } else if (key === "cost") {
           link.cost = +val;
+        } else if (key === "hazard") {
+          link.hazard = +val;
         } else if (key === "down") {
           link.down = true;
         } else {
@@ -855,6 +862,7 @@ function build(w) {
       bPort: pb,
       link,
       cost: ld.cost,
+      hazard: ld.hazard, // how much the demo favours this cable
       oneway: ld.oneway, // this link can have a one-way fault
       faulty: ld.oneway, // and the fault is set right now
     });
@@ -1434,9 +1442,11 @@ const { startDemo, demoFrame } = (() => {
   // The cable Stan goes for next: one of those still up, except the one where
   // Blobby is.
   function nextVictim(w, spare) {
-    const up = w.links.filter((e) => !isCut(e) && e !== spare);
-    const pool = up.length ? up : w.links;
-    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+    const open = w.links.filter((e) => e.hazard > 0); // exclude links with hazard=0
+    const up = open.filter((e) => !isCut(e) && e !== spare); // exclude cut links and the link where blobby is
+    const pool = up.length ? up : open; // except if there is no remaining link
+    let n = Math.random() * pool.reduce((sum, e) => sum + e.hazard, 0); // choose a random number
+    return pool.find((e) => (n -= e.hazard) < 0) || null; // choose the link matching the random number (each link has a range matching its weight)
   }
 
   // Stan never rests: he walks to a cable and swings at it until it gives, then
