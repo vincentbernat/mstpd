@@ -721,7 +721,7 @@ function showErrors(w) {
 
 // -- editing --------------------------------------------------------
 //
-const { wireEditor } = (() => {
+const { wireEditor, leaveEdit } = (() => {
   function enterEdit(w) {
     setRunning(w, false);
     w.textarea.value = w.source;
@@ -772,7 +772,7 @@ const { wireEditor } = (() => {
     w.discardBtn.onclick = () => leaveEdit(w);
   }
 
-  return { wireEditor };
+  return { wireEditor, leaveEdit };
 })();
 
 function build(w) {
@@ -1337,6 +1337,9 @@ const { startDemo, demoFrame } = (() => {
   const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
 
   function startDemo(w) {
+    if (w.demoOn) return;
+    if (w.editing) leaveEdit(w);
+    setRunning(w, false);
     w.demoOn = true;
     w.root.classList.add("mstp-demo");
     build(w);
@@ -2710,6 +2713,36 @@ const { copySeekLink } = (() => {
   });
 
   return { copySeekLink };
+})();
+
+// -- konami code ----------------------------------------------------
+
+(() => {
+  const CODE = [
+    "ArrowUp",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowLeft",
+    "ArrowRight",
+    "b",
+    "a",
+  ];
+  let at = 0;
+
+  document.addEventListener("keydown", (ev) => {
+    const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+    // A key out of order starts the code over, and may be its first one.
+    at = key === CODE[at] ? at + 1 : key === CODE[0] ? 1 : 0;
+    if (at < CODE.length) return;
+    at = 0;
+    for (const host of document.querySelectorAll(".mstp-host")) {
+      const w = widgets.get(host);
+      if (w) startDemo(w);
+    }
+  });
 })();
 
 // -- bootstrap ------------------------------------------------------
