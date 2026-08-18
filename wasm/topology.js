@@ -2420,11 +2420,15 @@ function flagsDots(open, toggle) {
   return b;
 }
 
+// A port identifier the way the standard writes it: 0x8002, the priority in the
+// first digit and the port number in the last three.
+const portId = (id) => `0x${id.toString(16).padStart(4, "0")}`;
+
 // The flags and the rest of the state worth showing for one port, as kvTable
 // rows.
 function portDetails(w, snap, ps, rapid) {
   const rows = [];
-  rows.push(["port id", ps.port_id]);
+  rows.push(["port id", portId(ps.port_id)]);
   rows.push(["link type", ps.oper_p2p ? "point-to-point" : "shared"]);
   rows.push(["edge", edgeState(ps)]);
   rows.push(["path cost", ps.external_path_cost]);
@@ -2438,7 +2442,7 @@ function portDetails(w, snap, ps, rapid) {
     "designated bridge",
     namedBridgeId(w, snap, ps.designated_bridge),
   ]);
-  rows.push(["designated port", ps.designated_port]);
+  rows.push(["designated port", portId(ps.designated_port)]);
   return rows;
 }
 
