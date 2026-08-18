@@ -597,6 +597,7 @@ static void json_port(sb_t *s, int porth)
     sb_bridge_id(s, &first, "designated_root", st.designated_root);
     sb_bridge_id(s, &first, "designated_bridge", st.designated_bridge);
     sb_port_id(s, &first, "designated_port", st.designated_port);
+    sb_kv_uint(s, &first, "designated_external_cost", st.designated_external_cost);
     sb_kv_uint(s, &first, "tx_bpdu", st.num_tx_bpdu);
     sb_kv_uint(s, &first, "rx_bpdu", st.num_rx_bpdu);
     sb_kv_uint(s, &first, "tx_tcn", st.num_tx_tcn);

@@ -2432,6 +2432,10 @@ function portDetails(w, snap, ps, rapid) {
   rows.push(["link type", ps.oper_p2p ? "point-to-point" : "shared"]);
   rows.push(["edge", edgeState(ps)]);
   rows.push(["path cost", ps.external_path_cost]);
+  rows.push([
+    "cost to root",
+    ps.designated_external_cost + ps.external_path_cost,
+  ]);
 
   const flags = portFlags(ps, rapid);
   if (flags) rows.push(["flags", flags]);
