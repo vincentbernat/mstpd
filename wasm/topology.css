@@ -456,6 +456,11 @@
     position: fixed;
     z-index: 100;
     box-shadow: 0 0.4em 1em #0004;
+
+    @supports (backdrop-filter: blur(1px)) {
+      background: color-mix(in srgb, Canvas 70%, transparent);
+      backdrop-filter: blur(6px) saturate(180%);
+    }
   }
 }
 
