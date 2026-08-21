@@ -1756,13 +1756,26 @@ function snapshot(w) {
   return { topo, bridges, ports };
 }
 
-// Add the name of the bridge owning a bridge id: "8192.02:00:00:00:00:04 (E)".
-function namedBridgeId(w, snap, id) {
+// The node holding a bridge id, or null when it sits outside the widget.
+function nodeForBridgeId(w, snap, id) {
   for (const n of w.nodes) {
     const b = snap.bridges.get(n.bridge?.handle);
-    if (b && b.bridge_id === id) return `${id} (${n.name})`;
+    if (b && b.bridge_id === id) return n;
   }
-  return id;
+  return null;
+}
+
+// Add the name of the bridge owning a bridge id: "8192.02:00:00:00:00:04 (E)".
+function namedBridgeId(w, snap, id) {
+  const n = nodeForBridgeId(w, snap, id);
+  return n ? `${id} (${n.name})` : id;
+}
+
+// The name of the root bridge a node has elected, after a 本 marker. A root
+// sitting outside the widget has no name to show.
+function rootName(w, snap, b) {
+  const n = nodeForBridgeId(w, snap, b.designated_root);
+  return `本${n ? n.name : "?"}`;
 }
 
 // A bridge with the spanning tree turned off. The core keeps it disabled: it
@@ -2040,19 +2053,22 @@ function render(w) {
       );
     else svgEl("circle", { cx: n.x, cy: n.y, r: NODE_RADIUS, ...shape }, g);
     drawNodeGlyph(g, n);
+    // The second line names the root the node has elected. The root itself has
+    // nothing to point to, so its name takes the whole circle.
     const solo = noStp(n) || w.demoOn;
+    const sub = solo || isRoot || !b ? "" : rootName(w, snap, b);
     svgEl(
       "text",
       {
         x: n.x,
-        y: solo ? n.y + 4 : n.y - 1,
+        y: sub ? n.y - 1 : n.y + 4,
         "text-anchor": "middle",
         "font-weight": 600,
         "font-size": 13,
       },
       g,
     ).textContent = n.name;
-    if (!solo)
+    if (sub)
       svgEl(
         "text",
         {
@@ -2063,7 +2079,7 @@ function render(w) {
           opacity: 0.7,
         },
         g,
-      ).textContent = isRoot ? "ROOT" : b ? `${b.root_path_cost}` : "";
+      ).textContent = sub;
     if (live)
       g.addEventListener("pointerdown", (ev) => {
         ev.stopPropagation();
