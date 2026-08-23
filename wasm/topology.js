@@ -2075,8 +2075,7 @@ function render(w) {
           x: n.x,
           y: n.y + 12,
           "text-anchor": "middle",
-          "font-size": 9,
-          opacity: 0.7,
+          "font-size": 10,
         },
         g,
       ).textContent = sub;
