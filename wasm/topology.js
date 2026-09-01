@@ -1338,8 +1338,7 @@ const { startDemo, demoFrame, demoClick } = (() => {
   const REPAIR_LOOPS = 2; // repair animations played before the cable comes back
   const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
   const COFFEE_SIZE = (16 * SPRITE_SIZE) / TILE; // the 16 px cup tile, one sprite pixel per pixel
-  const COFFEE_KEPT = 3; // cups left on the diagram
-  const COFFEE_GAP = 16; // how far right of a cable's middle a cup sits
+  const COFFEE_GAP = 16; // how far right of a cable's middle the cup sits
 
   function startDemo(w) {
     if (w.demoOn) return;
@@ -1366,7 +1365,7 @@ const { startDemo, demoFrame, demoClick } = (() => {
     return {
       blobby: sprite(w.blobbyEl, BLOBBY_ROWS, BLOBBY_SPEED, SPRITE_SIZE / 2, y),
       stan: sprite(w.stanEl, STAN_ROWS, STAN_SPEED, SPRITE_SIZE * 1.5, y),
-      coffees: [],
+      coffee: null,
     };
   }
 
@@ -1408,24 +1407,23 @@ const { startDemo, demoFrame, demoClick } = (() => {
     redrawState(w);
   }
 
-  // Take the cup standing by a cable away, if there is one.
+  // Take the cup away, once it stands by the cable that just went down.
   function takeCoffee(w, e) {
-    const cups = w.demo.coffees;
-    const i = cups.findIndex((c) => c.link === e);
-    if (i >= 0) cups.splice(i, 1)[0].el.remove();
+    if (w.demo.coffee?.link !== e) return;
+    w.demo.coffee.el.remove();
+    w.demo.coffee = null;
   }
 
   // A click on a cable during the demo: a cup goes by its middle and Stan
   // leaves whatever he was doing to go for that one. A cable already down gets
-  // nothing. The cups go behind the characters, who walk over them.
+  // nothing. Only one cup stands at a time, so another click moves it. The cup
+  // goes behind the characters, who walk over it.
   function demoClick(w, e) {
     if (isCut(e)) return;
-    const cups = w.demo.coffees;
-    takeCoffee(w, e);
+    w.demo.coffee?.el.remove();
     const el = h("div", { class: "mstp-coffee" });
     w.spritesEl.prepend(el);
-    cups.push({ el, link: e });
-    while (cups.length > COFFEE_KEPT) cups.shift().el.remove();
+    w.demo.coffee = { el, link: e };
     w.demo.stan.link = e;
     w.demo.stan.mode = "walk";
   }
@@ -1591,7 +1589,7 @@ const { startDemo, demoFrame, demoClick } = (() => {
     stepBlobby(w, w.demo.blobby, dt);
     drawSprite(w.demo.stan, view);
     drawSprite(w.demo.blobby, view);
-    for (const c of w.demo.coffees) drawCoffee(c, view);
+    if (w.demo.coffee) drawCoffee(w.demo.coffee, view);
   }
 
   return { startDemo, demoFrame, demoClick };
