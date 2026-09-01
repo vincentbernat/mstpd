@@ -370,7 +370,8 @@ async function mount(el) {
   // The demo characters, over the diagram.
   const stanEl = h("div", { class: "mstp-sprite mstp-stan" });
   const blobbyEl = h("div", { class: "mstp-sprite mstp-blobby" });
-  canvas.appendChild(h("div", { class: "mstp-sprites" }, blobbyEl, stanEl));
+  const spritesEl = h("div", { class: "mstp-sprites" }, blobbyEl, stanEl);
+  canvas.appendChild(spritesEl);
 
   // The editor takes the place of the details while the definition is being
   // changed, so the diagram stays where it is.
@@ -406,6 +407,7 @@ async function mount(el) {
     errBox,
     stanEl,
     blobbyEl,
+    spritesEl,
     runBtn,
     backBtn,
     stepBtn,
@@ -1306,7 +1308,7 @@ function setSlow(w, on) {
 // The topology plays by itself while two characters work on the cables. Stan
 // walks to a cable and swings his sword at it until it cuts. Blobby follows him
 // to repair the cable and wait for the next cut.
-const { startDemo, demoFrame } = (() => {
+const { startDemo, demoFrame, demoClick } = (() => {
   // The two characters. Each one has a sprite sheet of 64x64 tiles, eight per
   // line, with one line per animation.
   const STAN_ROWS = {
@@ -1335,6 +1337,9 @@ const { startDemo, demoFrame } = (() => {
   const STAN_LIFT = 16; // how far over a cable Stan stands, so his sword meets it
   const REPAIR_LOOPS = 2; // repair animations played before the cable comes back
   const MAX_FRAME_MS = 100; // longest step a frame may take, in real time
+  const COFFEE_SIZE = (16 * SPRITE_SIZE) / TILE; // the 16 px cup tile, one sprite pixel per pixel
+  const COFFEE_KEPT = 3; // cups left on the diagram
+  const COFFEE_GAP = 16; // how far right of a cable's middle a cup sits
 
   function startDemo(w) {
     if (w.demoOn) return;
@@ -1361,6 +1366,7 @@ const { startDemo, demoFrame } = (() => {
     return {
       blobby: sprite(w.blobbyEl, BLOBBY_ROWS, BLOBBY_SPEED, SPRITE_SIZE / 2, y),
       stan: sprite(w.stanEl, STAN_ROWS, STAN_SPEED, SPRITE_SIZE * 1.5, y),
+      coffees: [],
     };
   }
 
@@ -1400,6 +1406,28 @@ const { startDemo, demoFrame } = (() => {
   function demoToggle(w, e) {
     applyToggle(w, e);
     redrawState(w);
+  }
+
+  // Take the cup standing by a cable away, if there is one.
+  function takeCoffee(w, e) {
+    const cups = w.demo.coffees;
+    const i = cups.findIndex((c) => c.link === e);
+    if (i >= 0) cups.splice(i, 1)[0].el.remove();
+  }
+
+  // A click on a cable during the demo: a cup goes by its middle and Stan
+  // leaves whatever he was doing to go for that one. A cable already down gets
+  // nothing. The cups go behind the characters, who walk over them.
+  function demoClick(w, e) {
+    if (isCut(e)) return;
+    const cups = w.demo.coffees;
+    takeCoffee(w, e);
+    const el = h("div", { class: "mstp-coffee" });
+    w.spritesEl.prepend(el);
+    cups.push({ el, link: e });
+    while (cups.length > COFFEE_KEPT) cups.shift().el.remove();
+    w.demo.stan.link = e;
+    w.demo.stan.mode = "walk";
   }
 
   // Move a character towards a point and tell whether it is there. Its heading
@@ -1459,6 +1487,7 @@ const { startDemo, demoFrame } = (() => {
       if (!playFrames(sp, ACT_FPS, dt)) return;
       if (isCut(sp.link) || Math.random() >= CUT_CHANCE) return;
       demoToggle(w, sp.link);
+      takeCoffee(w, sp.link); // he drinks it once the cable is down
       sp.link = null;
       sp.mode = "walk";
       return;
@@ -1530,6 +1559,17 @@ const { startDemo, demoFrame } = (() => {
     sp.el.style.backgroundPosition = `${-sp.frame * TILE}px ${-sp.rows[sp.anim][0] * TILE}px`;
   }
 
+  // Put a cup beside its cable. The place comes from the cable itself, so the
+  // cup follows it when the diagram is laid out again.
+  function drawCoffee(c, view) {
+    const [mx, my] = linkMid(c.link);
+    const side = COFFEE_SIZE * view.k;
+    const x = view.ox + (mx + COFFEE_GAP) * view.k - side / 2;
+    const y = view.oy + my * view.k - side / 2;
+    c.el.style.width = c.el.style.height = `${side}px`;
+    c.el.style.transform = `translate(${x}px, ${y}px)`;
+  }
+
   // In demo mode, no need to animate each wave. Let's play all of them at once.
   function demoSecond(w) {
     w.nextAt = w.clock + 1000;
@@ -1551,9 +1591,10 @@ const { startDemo, demoFrame } = (() => {
     stepBlobby(w, w.demo.blobby, dt);
     drawSprite(w.demo.stan, view);
     drawSprite(w.demo.blobby, view);
+    for (const c of w.demo.coffees) drawCoffee(c, view);
   }
 
-  return { startDemo, demoFrame };
+  return { startDemo, demoFrame, demoClick };
 })();
 
 // -- BPDU animation -------------------------------------------------
@@ -1924,6 +1965,7 @@ function render(w) {
       hit.style.cursor = "pointer";
       hit.addEventListener("pointerdown", (ev) => {
         ev.stopPropagation();
+        if (w.demoOn) return demoClick(w, e);
         // Single click highlights. Double click cuts/restores.
         if (w.lastClick.link === e && ev.timeStamp - w.lastClick.t < 400) {
           w.lastClick = { link: null, t: 0 };
